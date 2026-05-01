@@ -1,0 +1,1433 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>동작 프리센트 신축공사 현장관리</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700;900&display=swap');
+        body { font-family: 'Pretendard', sans-serif; }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in { animation: fadeIn 0.4s ease-out forwards; }
+        @keyframes fadeInDown { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in-down { animation: fadeInDown 0.3s ease-out forwards; }
+    </style>
+</head>
+<body class="bg-slate-50">
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        // Firebase 초기화
+        const firebaseConfig = {
+            apiKey: "AIzaSyDw6rUaE7mxMrywGjAMAtv0Z4vGqg8K8m8",
+            authDomain: "precentacednc.firebaseapp.com",
+            projectId: "precentacednc",
+            storageBucket: "precentacednc.firebasestorage.app",
+            messagingSenderId: "752941894819",
+            appId: "1:752941894819:web:a4ca81c7d44107affb8316"
+        };
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'construction-app';
+
+        // ==========================================
+        // 컴포넌트: 홈 대시보드
+        // ==========================================
+        const DashboardTab = ({ stats, realWeather, tasks, requests, todayDateString, formatMd, todayDate, tomorrowDate, setActiveTab }) => (
+            <div className="space-y-6 animate-fade-in">
+                <div className="flex justify-between items-end">
+                    <h2 className="text-xl font-bold text-slate-800">현장 종합 현황</h2>
+                    <span className="text-sm font-medium text-slate-500">{todayDateString}</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    {/* 실시간 인원 */}
+                    <div className="bg-blue-600 text-white rounded-2xl p-6 shadow-lg relative overflow-hidden">
+                        <div className="z-10 relative">
+                            <p className="text-blue-100 text-sm font-medium">실시간 잔류 작업 인원</p>
+                            <div className="flex items-end gap-2 mt-2">
+                                <span className="text-5xl font-bold">{stats.currentWorking}</span>
+                                <span className="text-blue-100 mb-1">/ {stats.totalAssigned}명</span>
+                            </div>
+                        </div>
+                        <i className="fa-solid fa-helmet-safety absolute right-[-10px] bottom-[-10px] text-9xl text-blue-500 opacity-40"></i>
+                    </div>
+                    {/* 취약 근로자 */}
+                    <div className="bg-white rounded-2xl p-6 shadow border border-slate-100">
+                        <p className="text-slate-500 text-sm font-medium mb-4">취약 근로자 현황</p>
+                        <div className="grid grid-cols-2 gap-3 text-sm">
+                            <div className="flex justify-between p-2 bg-slate-50 rounded-lg"><span className="text-slate-600">고령자</span><span className="font-bold text-rose-600">{stats.totalElderly}</span></div>
+                            <div className="flex justify-between p-2 bg-slate-50 rounded-lg"><span className="text-slate-600">신규자</span><span className="font-bold text-orange-500">{stats.totalNew}</span></div>
+                            <div className="flex justify-between p-2 bg-slate-50 rounded-lg"><span className="text-slate-600">외국인</span><span className="font-bold text-blue-600">{stats.totalForeigner}</span></div>
+                            <div className="flex justify-between p-2 bg-slate-50 rounded-lg"><span className="text-slate-600">여성</span><span className="font-bold text-purple-600">{stats.totalFemale}</span></div>
+                        </div>
+                    </div>
+                    {/* 날씨 정보 */}
+                    <div className="bg-white rounded-2xl p-6 shadow border border-slate-100 md:col-span-2">
+                        <div className="flex justify-between items-center mb-4">
+                            <p className="text-slate-500 text-sm font-medium flex items-center gap-2">기상 정보 <span className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100">기상청 연동 예정</span></p>
+                            <p className="text-xs font-bold text-slate-600 bg-slate-100 px-3 py-1 rounded-full">📍 동작구 신대방동</p>
+                        </div>
+                        <div className="flex divide-x divide-slate-100">
+                            <div className="flex-1 flex items-center gap-4 pr-4">
+                                {realWeather.today.icon}
+                                <div><p className="text-xs text-slate-500 font-semibold">오늘 ({formatMd(todayDate)})</p><p className="font-bold text-slate-800 text-lg">{realWeather.today.desc} <span className="text-sm font-normal text-slate-400 ml-1">{realWeather.today.temp}</span></p></div>
+                            </div>
+                            <div className="flex-1 flex items-center gap-4 pl-4">
+                                {realWeather.tomorrow.icon}
+                                <div><p className="text-xs text-slate-500 font-semibold">내일 ({formatMd(tomorrowDate)})</p><p className="font-bold text-slate-800 text-lg">{realWeather.tomorrow.desc} <span className="text-sm font-normal text-slate-400 ml-1">{realWeather.tomorrow.temp}</span></p></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="bg-white rounded-2xl shadow border border-slate-100 p-6">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="font-bold text-slate-800 flex items-center gap-2"><i className="fa-solid fa-location-dot text-blue-600 text-lg"></i> 금일 주요 작업사항</h3>
+                            <button onClick={() => setActiveTab('tasks')} className="text-sm text-blue-600 hover:underline">전체보기</button>
+                        </div>
+                        <div className="space-y-3">
+                            {tasks.length === 0 ? <p className="text-sm text-slate-400 text-center py-4 bg-slate-50 rounded-xl">등록된 작업이 없습니다.</p> : tasks.slice(0, 3).map(task => (
+                                <div key={task.id} className="p-4 border border-slate-100 rounded-xl hover:bg-slate-50 transition">
+                                    <div className="flex justify-between items-start mb-2"><span className="bg-blue-100 text-blue-800 text-xs px-2.5 py-1 rounded-md font-bold">{task.trade}</span><span className="text-xs font-medium text-slate-500"><i className="fa-solid fa-location-dot mr-1"></i>{task.details[0]?.location} {task.details.length > 1 && ' 외'}</span></div>
+                                    <p className="text-sm font-bold text-slate-800">{task.details[0]?.task} {task.details.length > 1 && <span className="text-blue-500 text-xs ml-1">(외 {task.details.length - 1}건)</span>}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="bg-white rounded-2xl shadow border border-slate-100 p-6">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="font-bold text-slate-800 flex items-center gap-2"><i className="fa-solid fa-comment-dots text-emerald-600 text-lg"></i> 최근 요청/협의사항</h3>
+                            <button onClick={() => setActiveTab('requests')} className="text-sm text-blue-600 hover:underline">전체보기</button>
+                        </div>
+                        <div className="space-y-3">
+                            {requests.length === 0 ? <p className="text-sm text-slate-400 text-center py-4 bg-slate-50 rounded-xl">요청/협의 내용이 없습니다.</p> : requests.slice(0, 3).map(req => (
+                                <div key={req.id} className="p-4 border border-slate-100 rounded-xl flex gap-3 hover:bg-slate-50 transition">
+                                    <div className="mt-1 w-2 h-2 rounded-full bg-emerald-500 shrink-0"></div>
+                                    <div className="flex-1"><div className="flex justify-between items-center mb-1"><span className="text-xs font-bold text-slate-600">{req.sender}</span><span className="text-xs font-medium text-slate-400">{req.time}</span></div><p className="text-sm text-slate-800 line-clamp-2">{req.content}</p></div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+
+        // ==========================================
+        // 컴포넌트: 소통
+        // ==========================================
+        const CommunicationTab = ({ requests, loginRole, canDelete, handleAddRequestToDB, deleteRequest }) => {
+            const [newReq, setNewReq] = useState({ type: '요청', content: '' });
+            const [img, setImg] = useState(null);
+            const fileInputRef = useRef(null);
+
+            const handleImg = (e) => {
+                const f = e.target.files[0];
+                if (f) {
+                    const r = new FileReader();
+                    r.onloadend = () => {
+                        const imgObj = new Image();
+                        imgObj.onload = () => {
+                            const canvas = document.createElement('canvas');
+                            let width = imgObj.width;
+                            let height = imgObj.height;
+                            const MAX_WIDTH = 800; // 가로 최대 길이 제한으로 자동 압축
+                            if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
+                            canvas.width = width; canvas.height = height;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(imgObj, 0, 0, width, height);
+                            setImg(canvas.toDataURL('image/jpeg', 0.6)); // JPEG 60% 품질로 압축
+                        };
+                        imgObj.src = r.result;
+                    };
+                    r.readAsDataURL(f);
+                }
+            };
+            const onSubmit = (e) => {
+                e.preventDefault();
+                if (!newReq.content.trim() && !img) return alert('내용 또는 사진을 입력하세요.');
+                handleAddRequestToDB(newReq, img, loginRole);
+                setNewReq({ type: '요청', content: '' }); setImg(null); if(fileInputRef.current) fileInputRef.current.value = "";
+            };
+
+            return (
+                <div className="bg-white rounded-3xl shadow-lg border border-slate-100 flex flex-col h-[750px] animate-fade-in overflow-hidden">
+                    <div className="p-6 border-b border-slate-100 bg-slate-800 text-white flex justify-between items-center">
+                        <div><h2 className="font-bold text-lg">원청 ↔ 협력사 클라우드 소통 채널</h2><p className="text-xs text-slate-400 mt-1">현장의 실시간 사진과 특이사항을 모든 구성원에게 동기화하세요.</p></div>
+                        <i className="fa-solid fa-walkie-talkie text-3xl text-slate-600"></i>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50/50">
+                        {requests.length === 0 ? <div className="h-full flex flex-col items-center justify-center text-slate-400 opacity-50"><i className="fa-regular fa-comments text-5xl mb-3"></i><p>공유된 대화가 없습니다.</p></div> : requests.map(r => {
+                            const isMine = r.sender.includes('나');
+                            return (
+                                <div key={r.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'} group`}>
+                                    <div className={`max-w-[85%] md:max-w-[65%] p-5 rounded-3xl shadow-md relative ${isMine ? 'bg-blue-600 text-white rounded-tr-sm' : 'bg-white border border-slate-200 rounded-tl-sm'}`}>
+                                        <div className={`text-xs font-black mb-3 pb-2 border-b flex items-center gap-2 ${isMine ? 'border-blue-500/50 text-blue-200' : 'border-slate-100 text-slate-500'}`}><span className="uppercase tracking-widest bg-black/10 px-2 py-0.5 rounded-full text-[9px]">{r.type}</span> {r.sender.replace(' (나)', '')}</div>
+                                        {r.image && <img src={r.image} className="max-h-72 rounded-xl mb-3 w-full object-cover border border-black/10 shadow-sm"/>}
+                                        <p className="text-sm leading-relaxed whitespace-pre-wrap font-medium">{r.content}</p>
+                                        <div className={`text-[10px] mt-3 text-right font-bold ${isMine ? 'text-blue-300' : 'text-slate-400'}`}>{r.time}</div>
+                                        {canDelete && <button onClick={() => deleteRequest(r.id)} className={`absolute -top-3 ${isMine ? '-left-3' : '-right-3'} bg-white text-rose-500 rounded-full shadow-lg border border-slate-100 w-8 h-8 opacity-0 group-hover:opacity-100 transition flex items-center justify-center hover:bg-rose-500 hover:text-white`}><i className="fa-solid fa-trash-can text-[11px]"></i></button>}
+                                    </div>
+                                </div>
+                            )
+                        })}
+                    </div>
+                    <form onSubmit={onSubmit} className="p-5 border-t border-slate-200 bg-white">
+                        {img && (<div className="mb-3 relative inline-block animate-fade-in-down"><img src={img} className="h-24 w-auto rounded-xl border-2 border-blue-500 object-cover shadow-md"/><button type="button" onClick={()=>{setImg(null); if(fileInputRef.current) fileInputRef.current.value="";}} className="absolute -top-2 -right-2 bg-slate-800 text-white rounded-full w-6 h-6 flex items-center justify-center shadow-lg hover:bg-rose-500 transition"><i className="fa-solid fa-xmark text-xs"></i></button></div>)}
+                        <div className="flex gap-3 items-end">
+                            <label className="cursor-pointer bg-slate-50 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 transition-all p-4 rounded-2xl border border-slate-200 text-slate-500 shadow-sm flex items-center justify-center"><i className="fa-solid fa-camera text-xl"></i><input type="file" className="hidden" accept="image/*" onChange={handleImg} ref={fileInputRef}/></label>
+                            <div className="flex-1 bg-slate-50 border border-slate-200 rounded-2xl p-2 flex flex-col md:flex-row gap-2 shadow-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100 transition-all">
+                                <select className="p-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none w-full md:w-32" value={newReq.type} onChange={e => setNewReq({...newReq, type: e.target.value})}><option>요청</option><option>협의</option><option>공지</option></select>
+                                <textarea className="flex-1 p-3 bg-transparent text-sm outline-none resize-none font-medium text-slate-800 placeholder-slate-400" placeholder="내용을 입력하세요 (사진 동기화 가능)" rows="2" value={newReq.content} onChange={e => setNewReq({...newReq, content: e.target.value})}></textarea>
+                            </div>
+                            <button className="bg-slate-800 hover:bg-black text-white h-full px-6 py-4 rounded-2xl font-bold shadow-lg shadow-slate-300 transition-all active:scale-95 flex flex-col items-center justify-center gap-1 shrink-0"><i className="fa-solid fa-paper-plane"></i><span className="text-[10px] tracking-widest uppercase">Send</span></button>
+                        </div>
+                    </form>
+                </div>
+            );
+        };
+
+        // ==========================================
+        // 컴포넌트: 출역일보 (Master Only)
+        // ==========================================
+        const DailyReportTab = ({ subcontractors, tasks, todayStr, yesterdayStr }) => {
+            const formatTs = (ts) => {
+                const d = new Date(ts);
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            };
+
+            const approvedSubs = subcontractors.filter(s => s.status === 'approved');
+            
+            // 전체 현장 누계 및 통계
+            const totalCumulative = approvedSubs.reduce((sum, s) => sum + (s.early||0) + (s.day||0) + (s.night||0), 0);
+            const totalToday = approvedSubs.filter(s => s.date === todayStr).reduce((sum, s) => sum + (s.early||0) + (s.day||0) + (s.night||0), 0);
+            const totalYesterday = approvedSubs.filter(s => s.date === yesterdayStr).reduce((sum, s) => sum + (s.early||0) + (s.day||0) + (s.night||0), 0);
+
+            // 업체별 리포트 데이터
+            const subNames = [...new Set(approvedSubs.map(s => s.name))];
+            
+            const reportData = subNames.map(name => {
+                const mySubs = approvedSubs.filter(s => s.name === name);
+                const myTasks = tasks.filter(t => t.subName === name && t.status === 'approved');
+
+                const todayTaskDoc = myTasks.find(t => formatTs(t.createdAt) === todayStr);
+                const yesterdayTaskDoc = myTasks.find(t => formatTs(t.createdAt) === yesterdayStr);
+
+                const todayTaskText = todayTaskDoc && todayTaskDoc.details ? todayTaskDoc.details.map(d => d.task).join(', ') : '-';
+                const yesterdayTaskText = yesterdayTaskDoc && yesterdayTaskDoc.details ? yesterdayTaskDoc.details.map(d => d.task).join(', ') : '-';
+
+                const tradeMap = {};
+                mySubs.forEach(subDoc => {
+                    const isToday = subDoc.date === todayStr;
+                    const isYesterday = subDoc.date === yesterdayStr;
+                    const totalDocWorkers = (subDoc.early||0) + (subDoc.day||0) + (subDoc.night||0);
+                    
+                    if (subDoc.workers && subDoc.workers.length > 0) {
+                        subDoc.workers.forEach(w => {
+                            const tName = w.detailTrade || '미입력';
+                            if (!tradeMap[tName]) tradeMap[tName] = { yesterday: 0, today: 0, cumulative: 0 };
+                            tradeMap[tName].cumulative += 1;
+                            if (isToday) tradeMap[tName].today += 1;
+                            if (isYesterday) tradeMap[tName].yesterday += 1;
+                        });
+                        
+                        // 명단 입력 누락된 인원이 있을 경우 메인 공종으로 계산
+                        const unaccounted = totalDocWorkers - subDoc.workers.length;
+                        if (unaccounted > 0) {
+                            const mainTrade = subDoc.trade || '기본공종';
+                            if (!tradeMap[mainTrade]) tradeMap[mainTrade] = { yesterday: 0, today: 0, cumulative: 0 };
+                            tradeMap[mainTrade].cumulative += unaccounted;
+                            if (isToday) tradeMap[mainTrade].today += unaccounted;
+                            if (isYesterday) tradeMap[mainTrade].yesterday += unaccounted;
+                        }
+                    } else {
+                        // 명단이 아예 없으면 숫자로만 메인 공종 계산
+                        const mainTrade = subDoc.trade || '기본공종';
+                        if (!tradeMap[mainTrade]) tradeMap[mainTrade] = { yesterday: 0, today: 0, cumulative: 0 };
+                        tradeMap[mainTrade].cumulative += totalDocWorkers;
+                        if (isToday) tradeMap[mainTrade].today += totalDocWorkers;
+                        if (isYesterday) tradeMap[mainTrade].yesterday += totalDocWorkers;
+                    }
+                });
+
+                let tradesArray = Object.keys(tradeMap).map(k => ({ name: k, ...tradeMap[k] }));
+                if (tradesArray.length === 0) {
+                    tradesArray = [{ name: '-', yesterday: 0, today: 0, cumulative: 0 }];
+                }
+
+                return {
+                    name,
+                    yesterdayTaskText,
+                    todayTaskText,
+                    trades: tradesArray
+                };
+            });
+
+            // 금일 데이터가 있거나 과거 데이터가 있는 업체만 표시할지 판단. (여기선 모든 내역이 있는 업체 표시)
+            
+            return (
+                <div className="space-y-6 animate-fade-in">
+                    {/* 상단 요약 카드 */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="bg-white rounded-2xl shadow p-6 border border-slate-100 flex items-center justify-between">
+                            <div>
+                                <p className="text-sm font-bold text-slate-500 mb-1">전일 전체 출역 ({yesterdayStr.slice(5)})</p>
+                                <p className="text-3xl font-black text-slate-700">{totalYesterday}명</p>
+                            </div>
+                            <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 text-xl"><i className="fa-solid fa-users"></i></div>
+                        </div>
+                        <div className="bg-blue-600 rounded-2xl shadow-lg p-6 border border-blue-500 flex items-center justify-between text-white">
+                            <div>
+                                <p className="text-sm font-bold text-blue-200 mb-1">금일 전체 출역 ({todayStr.slice(5)})</p>
+                                <p className="text-3xl font-black">{totalToday}명</p>
+                            </div>
+                            <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center text-white text-xl"><i className="fa-solid fa-users"></i></div>
+                        </div>
+                        <div className="bg-white rounded-2xl shadow p-6 border border-slate-100 flex items-center justify-between">
+                            <div>
+                                <p className="text-sm font-bold text-slate-500 mb-1">현장 총 누계 (공사시작~)</p>
+                                <p className="text-3xl font-black text-slate-800">{totalCumulative}명</p>
+                            </div>
+                            <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 text-xl"><i className="fa-solid fa-chart-line"></i></div>
+                        </div>
+                    </div>
+
+                    {/* 출역일보 테이블 */}
+                    <div className="bg-white rounded-2xl shadow border border-slate-100 overflow-hidden">
+                        <div className="p-6 bg-slate-800 text-white flex justify-between items-center">
+                            <h3 className="font-bold text-lg flex items-center gap-2"><i className="fa-solid fa-file-lines text-blue-400"></i> 현장 출역일보 종합</h3>
+                            <button className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded font-bold transition" onClick={() => window.print()}><i className="fa-solid fa-print mr-1"></i> 출력</button>
+                        </div>
+                        <div className="overflow-x-auto print:overflow-visible">
+                            <table className="w-full text-sm text-center border-collapse">
+                                <thead className="bg-slate-100 text-slate-700 text-xs font-bold border-b-2 border-slate-300">
+                                    <tr>
+                                        <th rowSpan="2" className="p-3 border-r border-slate-300 w-28">업체명</th>
+                                        <th colSpan="2" className="p-2 border-r border-slate-300 bg-slate-200/50">작업내용</th>
+                                        <th colSpan="4" className="p-2">출역인원 (명)</th>
+                                    </tr>
+                                    <tr>
+                                        <th className="p-2 border-r border-t border-slate-300 w-1/4">전일 ({yesterdayStr.slice(5)})</th>
+                                        <th className="p-2 border-r border-t border-slate-300 w-1/4 text-blue-700">금일 ({todayStr.slice(5)})</th>
+                                        <th className="p-2 border-r border-t border-slate-300 w-24 bg-slate-50">세부공종</th>
+                                        <th className="p-2 border-r border-t border-slate-300 w-16 bg-slate-50">전일</th>
+                                        <th className="p-2 border-r border-t border-slate-300 w-16 bg-blue-50 text-blue-700">금일</th>
+                                        <th className="p-2 border-t border-slate-300 w-20 bg-slate-50">누계</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-200">
+                                    {reportData.map((data, idx) => (
+                                        data.trades.map((trade, tIdx) => (
+                                            <tr key={`${idx}-${tIdx}`} className="hover:bg-blue-50/30 transition">
+                                                {tIdx === 0 && (
+                                                    <>
+                                                        <td rowSpan={data.trades.length} className="p-3 border-r border-slate-200 font-black text-slate-800 bg-slate-50 align-middle">{data.name}</td>
+                                                        <td rowSpan={data.trades.length} className="p-3 border-r border-slate-200 text-left align-top"><div className="text-xs text-slate-600 max-h-24 overflow-y-auto pr-1">{data.yesterdayTaskText}</div></td>
+                                                        <td rowSpan={data.trades.length} className="p-3 border-r border-slate-200 text-left align-top"><div className="text-xs text-slate-800 font-bold max-h-24 overflow-y-auto pr-1">{data.todayTaskText}</div></td>
+                                                    </>
+                                                )}
+                                                <td className="p-2 border-r border-slate-200 text-[11px] font-bold text-slate-600">{trade.name}</td>
+                                                <td className="p-2 border-r border-slate-200 text-slate-500">{trade.yesterday > 0 ? trade.yesterday : '-'}</td>
+                                                <td className="p-2 border-r border-slate-200 font-bold text-blue-600 bg-blue-50/30">{trade.today > 0 ? trade.today : '-'}</td>
+                                                <td className="p-2 font-black text-slate-700 bg-slate-50/50">{trade.cumulative}</td>
+                                            </tr>
+                                        ))
+                                    ))}
+                                    {reportData.length === 0 && (
+                                        <tr><td colSpan="7" className="p-10 text-slate-400">조회 가능한 데이터가 없습니다.</td></tr>
+                                    )}
+                                </tbody>
+                                <tfoot className="bg-slate-800 text-white font-bold">
+                                    <tr>
+                                        <td colSpan="4" className="p-3 border-r border-slate-700 text-right">현장 전체 총 계</td>
+                                        <td className="p-3 border-r border-slate-700 text-center">{totalYesterday}</td>
+                                        <td className="p-3 border-r border-slate-700 text-center text-blue-300">{totalToday}</td>
+                                        <td className="p-3 text-center text-lg">{totalCumulative}</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+
+        // ==========================================
+        // 컴포넌트: 출역 관리
+        // ==========================================
+        const AttendanceTab = ({ subcontractors, savedSubs, riskMapping, stats, loginRole, myCompany, isMaster, handleAddSubToDB, handleUpdateSubToDB, handleApproveSubUpdate, handleRejectSubUpdate, deleteSubcontractor, handleUpdateRiskMapping, handleClockOut, todayStr }) => {
+            const defaultTrade = Object.keys(riskMapping)[0] || '';
+            const [newSub, setNewSub] = useState({ name: isMaster ? '' : myCompany, trade: defaultTrade, manager: '', phone: '', early: 0, day: 0, night: 0, elderly: 0, new: 0, foreigner: 0, female: 0, workers: [] });
+            const [editState, setEditState] = useState(null); // id: data
+            const [selectedSubForWorkers, setSelectedSubForWorkers] = useState(null); // 근로자 명단 보기 모달
+
+            const handleSubChange = (e) => {
+                const selected = savedSubs.find(s => s.name === e.target.value);
+                setNewSub(prev => ({ ...prev, name: e.target.value, manager: selected?.manager || '', phone: selected?.phone || '' }));
+            };
+            
+            const addWorker = () => setNewSub({...newSub, workers: [...newSub.workers, { name: '', shift: '주간', detailTrade: '' }]});
+            const removeWorker = (idx) => setNewSub({...newSub, workers: newSub.workers.filter((_, i) => i !== idx)});
+            const handleWorkerChange = (idx, field, val) => {
+                const nw = [...newSub.workers];
+                nw[idx][field] = val;
+                setNewSub({...newSub, workers: nw});
+            };
+
+            const workerCounts = {
+                early: newSub.workers.filter(w => w.shift === '조출').length,
+                day: newSub.workers.filter(w => w.shift === '주간').length,
+                night: newSub.workers.filter(w => w.shift === '야간').length
+            };
+
+            const onSubmit = (e) => {
+                e.preventDefault();
+                if (!newSub.name || !newSub.manager) return alert('협력사 정보를 완성해 주세요.');
+                handleAddSubToDB(newSub);
+                setNewSub({ ...newSub, early:0, day:0, night:0, elderly:0, new:0, foreigner:0, female:0, workers: [] });
+            };
+
+            const isAllClockedOut = (sub) => (sub.early === 0 || sub.clockedOut?.early) && (sub.day === 0 || sub.clockedOut?.day) && (sub.night === 0 || sub.clockedOut?.night) && ((sub.early||0) + (sub.day||0) + (sub.night||0) > 0);
+
+            // 금일 데이터 필터링
+            const todaysSubs = subcontractors.filter(sub => sub.date === todayStr);
+
+            // 누계 계산 함수
+            const getCumulative = (subName) => {
+                return subcontractors
+                    .filter(s => s.name === subName && s.status === 'approved')
+                    .reduce((sum, s) => sum + (s.early||0) + (s.day||0) + (s.night||0), 0);
+            };
+
+            return (
+                <div className="space-y-6 animate-fade-in">
+                    {/* 등록 폼 */}
+                    <div className="bg-white rounded-2xl shadow border border-slate-100 p-6 md:p-8">
+                        <h2 className="text-xl font-bold mb-6 flex items-center gap-2"><i className="fa-solid fa-user-plus text-blue-600"></i> 신규 출역 및 TBM 등록</h2>
+                        <form onSubmit={onSubmit} className="space-y-6">
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+                                <div className="space-y-2">
+                                    <label className="text-xs font-bold text-slate-600">협력사명</label>
+                                    <div className="space-y-1.5">
+                                        <select className="w-full p-3 border border-slate-200 rounded-xl text-sm bg-slate-50 font-medium focus:border-blue-500 focus:ring-1 focus:ring-blue-200 outline-none" value={newSub.name} onChange={handleSubChange} disabled={!isMaster} required>
+                                            <option value="" disabled>협력사 선택</option>
+                                            {savedSubs.map((s, i) => <option key={i} value={s.name}>{s.name}</option>)}
+                                        </select>
+                                        {isMaster && <p className="text-[10px] text-blue-500 font-bold">* 협력사 추가/수정은 [설정] 탭을 이용하세요.</p>}
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-xs font-bold text-slate-600">공종</label>
+                                    <div className="flex gap-1.5">
+                                        <select className="flex-1 p-3 border border-slate-200 rounded-xl text-sm bg-slate-50 font-medium" value={newSub.trade} onChange={e => setNewSub({...newSub, trade: e.target.value})}>
+                                            {Object.keys(riskMapping).map(t => <option key={t} value={t}>{t}</option>)}
+                                        </select>
+                                        {isMaster && <button type="button" onClick={() => { const tr = prompt('신규 공종?'); if(tr) handleUpdateRiskMapping(tr, '기본안전수칙'); }} className="bg-slate-800 text-white w-12 rounded-xl flex items-center justify-center shadow"><i className="fa-solid fa-plus"></i></button>}
+                                        {isMaster && <button type="button" onClick={() => { if(confirm('공종 삭제?')) handleUpdateRiskMapping(newSub.trade, null); }} className="bg-rose-100 text-rose-600 w-12 rounded-xl flex items-center justify-center shadow-sm"><i className="fa-solid fa-minus"></i></button>}
+                                    </div>
+                                </div>
+                                <div className="space-y-2"><label className="text-xs font-bold text-slate-600">소장/관리자</label><input type="text" className="w-full p-3 border border-slate-200 rounded-xl text-sm bg-slate-50 font-medium" value={newSub.manager} onChange={e => setNewSub({...newSub, manager: e.target.value})} required/></div>
+                                <div className="space-y-2"><label className="text-xs font-bold text-slate-600">연락처</label><input type="text" className="w-full p-3 border border-slate-200 rounded-xl text-sm bg-slate-50 font-medium" value={newSub.phone} onChange={e => setNewSub({...newSub, phone: e.target.value})}/></div>
+                            </div>
+
+                            <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 grid grid-cols-2 md:grid-cols-7 gap-5">
+                                <div className="space-y-2"><label className="block text-xs font-extrabold text-center text-blue-700">조출</label><input type="number" min="0" className="w-full text-center p-3 border rounded-xl" value={newSub.early} onChange={e => setNewSub({...newSub, early: Number(e.target.value)})}/></div>
+                                <div className="space-y-2"><label className="block text-xs font-extrabold text-center text-blue-700">주간</label><input type="number" min="0" className="w-full text-center p-3 border rounded-xl" value={newSub.day} onChange={e => setNewSub({...newSub, day: Number(e.target.value)})}/></div>
+                                <div className="space-y-2"><label className="block text-xs font-extrabold text-center text-blue-700">야간</label><input type="number" min="0" className="w-full text-center p-3 border rounded-xl" value={newSub.night} onChange={e => setNewSub({...newSub, night: Number(e.target.value)})}/></div>
+                                <div className="col-span-2 md:col-span-4 bg-white p-4 rounded-xl border grid grid-cols-4 gap-3 relative mt-2 md:mt-0">
+                                    <span className="absolute -top-3 left-4 bg-slate-800 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">취약 근로자 포함</span>
+                                    <div className="mt-1"><label className="block text-[11px] font-bold text-center text-rose-600">고령</label><input type="number" min="0" className="w-full text-center p-2 border rounded-lg text-sm bg-slate-50" value={newSub.elderly} onChange={e => setNewSub({...newSub, elderly: Number(e.target.value)})}/></div>
+                                    <div className="mt-1"><label className="block text-[11px] font-bold text-center text-orange-500">신규</label><input type="number" min="0" className="w-full text-center p-2 border rounded-lg text-sm bg-slate-50" value={newSub.new} onChange={e => setNewSub({...newSub, new: Number(e.target.value)})}/></div>
+                                    <div className="mt-1"><label className="block text-[11px] font-bold text-center text-blue-600">외국</label><input type="number" min="0" className="w-full text-center p-2 border rounded-lg text-sm bg-slate-50" value={newSub.foreigner} onChange={e => setNewSub({...newSub, foreigner: Number(e.target.value)})}/></div>
+                                    <div className="mt-1"><label className="block text-[11px] font-bold text-center text-purple-600">여성</label><input type="number" min="0" className="w-full text-center p-2 border rounded-lg text-sm bg-slate-50" value={newSub.female} onChange={e => setNewSub({...newSub, female: Number(e.target.value)})}/></div>
+                                </div>
+                            </div>
+
+                            {/* 세부 인원 명단 등록 */}
+                            <div className="bg-white p-5 rounded-2xl border border-slate-200">
+                                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-2">
+                                    <h3 className="text-sm font-bold text-slate-700"><i className="fa-solid fa-clipboard-user text-blue-500 mr-1"></i> 세부 출역 인원 명단 (옵션)</h3>
+                                    <div className="flex gap-3 text-[11px] font-bold bg-slate-50 px-3 py-1.5 rounded-lg border">
+                                        <span className={workerCounts.early === newSub.early ? 'text-emerald-600' : 'text-rose-500'}>조출 일치여부: {workerCounts.early}/{newSub.early}</span>
+                                        <span className="text-slate-300">|</span>
+                                        <span className={workerCounts.day === newSub.day ? 'text-emerald-600' : 'text-rose-500'}>주간 일치여부: {workerCounts.day}/{newSub.day}</span>
+                                        <span className="text-slate-300">|</span>
+                                        <span className={workerCounts.night === newSub.night ? 'text-emerald-600' : 'text-rose-500'}>야간 일치여부: {workerCounts.night}/{newSub.night}</span>
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    {newSub.workers.map((w, idx) => (
+                                        <div key={idx} className="flex gap-2 text-sm items-center">
+                                            <select className="p-2 border rounded-lg bg-slate-50 outline-none focus:bg-white" value={w.shift} onChange={(e) => handleWorkerChange(idx, 'shift', e.target.value)}>
+                                                <option>조출</option><option>주간</option><option>야간</option>
+                                            </select>
+                                            <input className="flex-1 p-2 border rounded-lg bg-slate-50 outline-none focus:bg-white" placeholder="이름 (예: 홍길동)" value={w.name} onChange={(e) => handleWorkerChange(idx, 'name', e.target.value)}/>
+                                            <input className="flex-1 p-2 border rounded-lg bg-slate-50 outline-none focus:bg-white" placeholder="세부공종 (예: 형틀목수)" value={w.detailTrade} onChange={(e) => handleWorkerChange(idx, 'detailTrade', e.target.value)}/>
+                                            <button type="button" onClick={() => removeWorker(idx)} className="text-rose-400 hover:text-rose-600 px-2"><i className="fa-solid fa-xmark"></i></button>
+                                        </div>
+                                    ))}
+                                    <button type="button" onClick={addWorker} className="w-full bg-slate-50 border border-dashed border-blue-300 text-blue-600 font-bold py-2.5 rounded-xl text-xs hover:bg-blue-50 transition mt-2"><i className="fa-solid fa-plus mr-1"></i> 인원 명단 추가</button>
+                                </div>
+                            </div>
+
+                            <div className="flex justify-end"><button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-xl font-bold shadow-lg transition"><i className="fa-solid fa-check mr-2"></i>{isMaster ? '출역 등록' : '출역 등록 요청'}</button></div>
+                        </form>
+                    </div>
+
+                    {/* 출역 보드 */}
+                    <div className="bg-white rounded-2xl shadow border border-slate-100 overflow-hidden">
+                        <div className="p-6 bg-slate-50/50 flex justify-between items-center">
+                            <h3 className="font-bold text-slate-800 text-lg">금일 현장 출역 현황 보드 <span className="text-xs text-slate-400 ml-2 font-normal">({todayStr})</span></h3>
+                            <div className="flex gap-4 text-sm bg-white p-2 px-4 rounded-lg shadow-sm border border-slate-200">
+                                <div>총 투입 <span className="font-bold text-blue-600 ml-1">{stats.totalAssigned}명</span></div>
+                                <div className="w-px bg-slate-200"></div>
+                                <div>현재 잔류 <span className="font-bold text-rose-600 ml-1">{stats.currentWorking}명</span></div>
+                            </div>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm text-left">
+                                <thead className="bg-slate-800 text-slate-200 font-medium text-xs">
+                                    <tr>
+                                        <th className="p-4 border-r border-slate-700">협력사 및 공종</th>
+                                        <th className="p-4 border-r border-slate-700 text-center w-16">조출</th>
+                                        <th className="p-4 border-r border-slate-700 text-center w-16">주간</th>
+                                        <th className="p-4 border-r border-slate-700 text-center w-16">야간</th>
+                                        <th className="p-4 border-r border-slate-700 text-center w-24">총 누계</th>
+                                        <th className="p-4 border-r border-slate-700 text-center w-28">취약 (고/신/외/여)</th>
+                                        <th className="p-4 text-center w-24">관리</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {todaysSubs.length === 0 ? <tr><td colSpan="7" className="p-10 text-center text-slate-400">금일 등록된 데이터가 없습니다.</td></tr> : todaysSubs.map(sub => {
+                                        const isEditing = editState?.id === sub.id;
+                                        const canEdit = isMaster || sub.name === myCompany;
+                                        const isPending = sub.status === 'pending_update';
+                                        const cum = getCumulative(sub.name);
+
+                                        return (
+                                            <tr key={sub.id} className={`${isAllClockedOut(sub) ? 'opacity-50 bg-slate-50' : 'hover:bg-blue-50/30'}`}>
+                                                <td className="p-4 border-r border-slate-100">
+                                                    <div className="font-bold text-slate-800 cursor-pointer hover:text-blue-600 transition inline-block" onClick={() => setSelectedSubForWorkers(sub)}>
+                                                        {sub.name} <i className="fa-solid fa-magnifying-glass text-[10px] text-slate-400 ml-1"></i>
+                                                    </div>
+                                                    <div className="text-blue-600 text-xs mt-0.5">{sub.trade}</div>
+                                                    {isPending && <span className="inline-block mt-1 bg-amber-100 text-amber-700 text-[10px] px-2 py-0.5 rounded font-bold">수정 승인 대기중</span>}
+                                                </td>
+                                                {/* 인원 렌더링 */}
+                                                {['early', 'day', 'night'].map(shift => (
+                                                    <td key={shift} className="p-3 border-r border-slate-100 text-center">
+                                                        {isEditing ? (
+                                                            <input type="number" className="w-12 text-center border rounded p-1" value={editState[shift]} onChange={e=>setEditState({...editState, [shift]: Number(e.target.value)})} />
+                                                        ) : (
+                                                            <div>
+                                                                <div className="font-black text-slate-700 text-base">{sub[shift]}</div>
+                                                                {isPending && sub.pendingData && sub.pendingData[shift] !== sub[shift] && <div className="text-amber-600 text-[10px] font-bold">→ {sub.pendingData[shift]}</div>}
+                                                                {!isEditing && sub[shift] > 0 && (
+                                                                    sub.clockedOut?.[shift] ? 
+                                                                    <span className="text-[10px] bg-slate-200 px-2 py-1 rounded block mt-1">완료</span> : 
+                                                                    <button onClick={()=>handleClockOut(sub.id, shift, sub.name)} className="text-[10px] bg-rose-500 text-white px-2 py-1 rounded block w-full mt-1">퇴근</button>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                ))}
+                                                {/* 누계 */}
+                                                <td className="p-3 border-r border-slate-100 text-center">
+                                                    <div className="font-black text-blue-600 text-base">{cum}명</div>
+                                                </td>
+                                                {/* 취약계층 */}
+                                                <td className="p-3 border-r border-slate-100 text-center">
+                                                    {isEditing ? (
+                                                        <div className="grid grid-cols-2 gap-1 text-[10px]">
+                                                            <input type="number" placeholder="고" className="border rounded p-1 w-full" value={editState.elderly} onChange={e=>setEditState({...editState, elderly: Number(e.target.value)})}/>
+                                                            <input type="number" placeholder="신" className="border rounded p-1 w-full" value={editState.new} onChange={e=>setEditState({...editState, new: Number(e.target.value)})}/>
+                                                            <input type="number" placeholder="외" className="border rounded p-1 w-full" value={editState.foreigner} onChange={e=>setEditState({...editState, foreigner: Number(e.target.value)})}/>
+                                                            <input type="number" placeholder="여" className="border rounded p-1 w-full" value={editState.female} onChange={e=>setEditState({...editState, female: Number(e.target.value)})}/>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="text-xs font-bold text-slate-500 tracking-widest">{sub.elderly}/{sub.new}/{sub.foreigner}/{sub.female}</div>
+                                                    )}
+                                                </td>
+                                                {/* 액션 버튼 */}
+                                                <td className="p-3 text-center space-y-1">
+                                                    {isEditing ? (
+                                                        <div className="flex gap-1 justify-center">
+                                                            <button onClick={() => { handleUpdateSubToDB(sub.id, editState, isMaster); setEditState(null); }} className="bg-blue-600 text-white text-[10px] px-2 py-1 rounded">{isMaster ? '수정 완료' : '수정 요청'}</button>
+                                                            <button onClick={() => setEditState(null)} className="bg-slate-400 text-white text-[10px] px-2 py-1 rounded">취소</button>
+                                                        </div>
+                                                    ) : (
+                                                        <>
+                                                            {isPending && isMaster ? (
+                                                                <div className="flex gap-1 justify-center">
+                                                                    <button onClick={() => handleApproveSubUpdate(sub.id, sub.pendingData)} className="bg-emerald-500 text-white text-[10px] px-2 py-1 rounded font-bold">승인</button>
+                                                                    <button onClick={() => handleRejectSubUpdate(sub.id)} className="bg-rose-500 text-white text-[10px] px-2 py-1 rounded font-bold">반려</button>
+                                                                </div>
+                                                            ) : (
+                                                                canEdit && !isPending && <button onClick={() => setEditState({id: sub.id, ...sub})} className="bg-slate-100 border text-slate-600 text-[10px] px-3 py-1.5 rounded hover:bg-slate-200 w-full font-bold shadow-sm">수정</button>
+                                                            )}
+                                                            {isMaster && <button onClick={() => deleteSubcontractor(sub.id)} className="text-slate-400 hover:text-rose-500 text-[10px] px-2 py-1 w-full"><i className="fa-solid fa-trash-can"></i> 삭제</button>}
+                                                        </>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        )
+                                    })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    {/* 세부 인원 명단 확인 모달 */}
+                    {selectedSubForWorkers && (
+                        <div className="fixed inset-0 z-50 bg-black/60 flex justify-center items-center p-4">
+                            <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-2xl animate-fade-in-down max-h-[80vh] flex flex-col">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h3 className="text-lg font-bold text-slate-800">{selectedSubForWorkers.name} 세부 명단</h3>
+                                    <button onClick={() => setSelectedSubForWorkers(null)} className="text-slate-400 hover:text-rose-500 text-xl"><i className="fa-solid fa-xmark"></i></button>
+                                </div>
+                                <div className="overflow-y-auto flex-1 border rounded-xl bg-slate-50">
+                                    {(!selectedSubForWorkers.workers || selectedSubForWorkers.workers.length === 0) ? (
+                                        <div className="p-6 text-center text-slate-400 text-sm font-medium">등록된 세부 명단이 없습니다.</div>
+                                    ) : (
+                                        <ul className="divide-y divide-slate-200">
+                                            {selectedSubForWorkers.workers.map((w, idx) => (
+                                                <li key={idx} className="p-4 flex items-center justify-between bg-white hover:bg-blue-50/50 transition">
+                                                    <div className="flex items-center gap-3">
+                                                        <span className={`text-[10px] font-black px-2 py-1 rounded text-white ${w.shift==='조출'?'bg-rose-500':w.shift==='주간'?'bg-blue-500':'bg-slate-800'}`}>{w.shift}</span>
+                                                        <span className="font-bold text-slate-800">{w.name || '이름없음'}</span>
+                                                    </div>
+                                                    <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded border">{w.detailTrade || '공종 미입력'}</span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
+                                </div>
+                                <div className="mt-4 flex justify-end">
+                                    <button onClick={() => setSelectedSubForWorkers(null)} className="bg-slate-800 text-white px-6 py-2.5 rounded-xl font-bold shadow">닫기</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // ==========================================
+        // 컴포넌트: 작업 및 위험관리 (Tasks)
+        // ==========================================
+        const TasksTab = ({ tasks, riskMapping, isMaster, myCompany, handleAddTaskToDB, handleUpdateTaskToDB, handleApproveTaskUpdate, handleRejectTaskUpdate, deleteTask }) => {
+            const defaultTrade = Object.keys(riskMapping)[0] || '';
+            const defaultDetail = { location: '', task: '', risk: '', safety: '' };
+            const [newTask, setNewTask] = useState({ trade: defaultTrade, equip: '', details: [{ ...defaultDetail }] });
+            const [editState, setEditState] = useState(null);
+
+            const handleDetailChange = (i, f, v, isEdit=false) => { 
+                if(isEdit) {
+                    const nd = [...editState.details]; nd[i][f] = v; setEditState({...editState, details: nd});
+                } else {
+                    const nd = [...newTask.details]; nd[i][f] = v; setNewTask({...newTask, details: nd}); 
+                }
+            };
+            
+            const onSubmit = (e) => {
+                e.preventDefault();
+                for (let d of newTask.details) { if(!d.task.trim() || !d.location.trim()) return alert('작업내용과 위치를 모두 입력하세요.'); }
+                handleAddTaskToDB({...newTask, subName: isMaster ? '원청' : myCompany});
+                setNewTask({ trade: defaultTrade, equip: '', details: [{ ...defaultDetail }] });
+            };
+
+            return (
+                <div className="space-y-6 animate-fade-in">
+                    <div className="bg-white rounded-2xl shadow border border-slate-100 p-6 md:p-8">
+                        <h2 className="text-xl font-bold mb-6 flex items-center gap-2"><i className="fa-solid fa-list-check text-blue-600"></i> 작업/장비 및 세부 위험요소 등록</h2>
+                        <form onSubmit={onSubmit} className="space-y-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-xs font-bold text-slate-600">공종</label>
+                                    <select className="w-full p-3 border rounded-xl text-sm bg-slate-50" value={newTask.trade} onChange={e=>setNewTask({...newTask, trade:e.target.value})}>
+                                        {Object.keys(riskMapping).map(t=><option key={t}>{t}</option>)}
+                                    </select>
+                                </div>
+                                <div className="space-y-2"><label className="text-xs font-bold text-slate-600">투입장비 (선택)</label><input type="text" className="w-full p-3 border rounded-xl text-sm bg-slate-50" placeholder="예: 펌프카 1대" value={newTask.equip} onChange={e=>setNewTask({...newTask, equip:e.target.value})}/></div>
+                            </div>
+                            
+                            <div className="bg-slate-50 p-5 rounded-2xl border border-dashed border-slate-300 space-y-4">
+                                <p className="text-sm font-extrabold text-slate-700 flex items-center gap-2"><i className="fa-solid fa-layer-group text-blue-500"></i> 세부 작업 리스트 등록</p>
+                                {newTask.details.map((d, i) => (
+                                    <div key={i} className="bg-white p-4 rounded-xl border shadow-sm space-y-3 relative">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <div><label className="text-[10px] font-bold text-slate-500 block mb-1">1. 작업 위치</label><input className="w-full p-2 border rounded-lg text-sm bg-slate-50 focus:bg-white" placeholder="예: 101동 5층" value={d.location} onChange={e=>handleDetailChange(i,'location',e.target.value)} required/></div>
+                                            <div><label className="text-[10px] font-bold text-slate-500 block mb-1">2. 작업 내용</label><input className="w-full p-2 border rounded-lg text-sm bg-slate-50 focus:bg-white" placeholder="예: 알폼 해체" value={d.task} onChange={e=>handleDetailChange(i,'task',e.target.value)} required/></div>
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            <div><label className="text-[10px] font-bold text-rose-500 block mb-1">3. 위험 요소</label><input className="w-full p-2 border rounded-lg text-sm bg-rose-50 focus:bg-white" placeholder="예: 개구부 추락 위험" value={d.risk} onChange={e=>handleDetailChange(i,'risk',e.target.value)} required/></div>
+                                            <div><label className="text-[10px] font-bold text-emerald-500 block mb-1">4. 안전 대책</label><input className="w-full p-2 border rounded-lg text-sm bg-emerald-50 focus:bg-white" placeholder="예: 안전대 체결 및 생명줄 확인" value={d.safety} onChange={e=>handleDetailChange(i,'safety',e.target.value)} required/></div>
+                                        </div>
+                                        {i > 0 && <button type="button" onClick={()=>setNewTask({...newTask, details:newTask.details.filter((_,idx)=>idx!==i)})} className="absolute top-2 right-2 bg-rose-100 text-rose-500 rounded-full w-6 h-6 flex justify-center items-center"><i className="fa-solid fa-xmark text-xs"></i></button>}
+                                    </div>
+                                ))}
+                                <button type="button" onClick={()=>setNewTask({...newTask, details:[...newTask.details, {...defaultDetail}]})} className="w-full py-2 bg-white border border-blue-200 rounded-xl text-sm font-bold text-blue-600 hover:bg-blue-50 transition"><i className="fa-solid fa-plus mr-1"></i> 세부 작업 추가</button>
+                            </div>
+                            <div className="flex justify-end pt-2"><button type="submit" className="bg-slate-800 text-white px-8 py-3 rounded-xl font-bold shadow-lg"><i className="fa-solid fa-cloud-arrow-up mr-2"></i>{isMaster ? '작업 동기화 등록' : '작업 동기화 요청'}</button></div>
+                        </form>
+                    </div>
+
+                    <div className="space-y-4">
+                        <h3 className="font-bold text-slate-800 ml-2">등록된 작업 내역 보드</h3>
+                        {tasks.length === 0 ? <div className="bg-white rounded-2xl shadow p-10 text-center text-slate-400">등록된 작업이 없습니다.</div> : tasks.map(t => {
+                            const isPending = t.status === 'pending_update';
+                            const canEdit = isMaster || t.subName === myCompany;
+                            const isEditing = editState?.id === t.id;
+                            const displayData = isEditing ? editState : (isPending && isMaster ? t.pendingData : t);
+
+                            return (
+                                <div key={t.id} className={`bg-white border rounded-2xl overflow-hidden shadow-sm transition-all ${isPending ? 'border-amber-300 ring-2 ring-amber-100' : 'border-slate-200'}`}>
+                                    <div className="bg-slate-800 p-4 flex justify-between items-center text-white">
+                                        <div className="flex items-center gap-3">
+                                            <span className="font-bold text-lg">{displayData.trade}</span>
+                                            <span className="text-xs bg-white/20 px-2 py-1 rounded">{t.subName}</span>
+                                            {isPending && <span className="bg-amber-500 text-white text-[10px] px-2 py-0.5 rounded font-bold animate-pulse">수정 승인 대기중</span>}
+                                        </div>
+                                        <div className="flex gap-2">
+                                            {isEditing ? (
+                                                <>
+                                                    <button onClick={()=>{ handleUpdateTaskToDB(t.id, editState, isMaster); setEditState(null); }} className="text-xs bg-blue-500 px-3 py-1 rounded font-bold shadow">{isMaster ? '수정 완료' : '수정 요청'}</button>
+                                                    <button onClick={()=>setEditState(null)} className="text-xs bg-slate-500 px-3 py-1 rounded">취소</button>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    {isPending && isMaster ? (
+                                                        <>
+                                                            <button onClick={()=>handleApproveTaskUpdate(t.id, t.pendingData)} className="text-xs bg-emerald-500 px-3 py-1 rounded font-bold">승인</button>
+                                                            <button onClick={()=>handleRejectTaskUpdate(t.id)} className="text-xs bg-rose-500 px-3 py-1 rounded font-bold">반려</button>
+                                                        </>
+                                                    ) : (
+                                                        canEdit && !isPending && <button onClick={()=>setEditState({id: t.id, ...t})} className="text-xs bg-white/20 hover:bg-white/40 px-3 py-1 rounded transition"><i className="fa-solid fa-pen"></i> 수정</button>
+                                                    )}
+                                                    {isMaster && <button onClick={()=>deleteTask(t.id)} className="text-xs bg-rose-500/80 hover:bg-rose-500 px-3 py-1 rounded ml-2"><i className="fa-solid fa-trash-can"></i> 삭제</button>}
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="p-5 space-y-4">
+                                        {displayData.equip && <div className="text-sm"><span className="font-bold text-slate-500">투입 장비:</span> {displayData.equip}</div>}
+                                        <div className="space-y-3">
+                                            {displayData.details.map((d, idx) => (
+                                                <div key={idx} className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                                                    {isEditing ? (
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                                                            <input className="border p-2 rounded" placeholder="위치" value={d.location} onChange={e=>handleDetailChange(idx,'location',e.target.value,true)}/>
+                                                            <input className="border p-2 rounded" placeholder="작업내용" value={d.task} onChange={e=>handleDetailChange(idx,'task',e.target.value,true)}/>
+                                                            <input className="border p-2 rounded border-rose-200 bg-rose-50" placeholder="위험요소" value={d.risk} onChange={e=>handleDetailChange(idx,'risk',e.target.value,true)}/>
+                                                            <input className="border p-2 rounded border-emerald-200 bg-emerald-50" placeholder="안전대책" value={d.safety} onChange={e=>handleDetailChange(idx,'safety',e.target.value,true)}/>
+                                                        </div>
+                                                    ) : (
+                                                        <>
+                                                            <div className="flex items-center gap-2 mb-2">
+                                                                <span className="bg-blue-100 text-blue-700 text-[10px] px-2 py-0.5 rounded font-bold">{idx+1}</span>
+                                                                <span className="font-bold text-slate-800">{d.location}</span>
+                                                                <span className="text-slate-300">|</span>
+                                                                <span className="text-slate-600 font-medium">{d.task}</span>
+                                                            </div>
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2 text-xs">
+                                                                <div className="bg-white p-2 rounded border border-rose-100"><span className="font-bold text-rose-500 block mb-1"><i className="fa-solid fa-triangle-exclamation"></i> 위험요소</span>{d.risk}</div>
+                                                                <div className="bg-white p-2 rounded border border-emerald-100"><span className="font-bold text-emerald-500 block mb-1"><i className="fa-solid fa-shield-halved"></i> 안전대책</span>{d.safety}</div>
+                                                            </div>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            ))}
+                                            {isEditing && <button onClick={()=>setEditState({...editState, details:[...editState.details, {...defaultDetail}]})} className="w-full text-xs py-2 bg-slate-100 rounded text-slate-600 font-bold border"><i className="fa-solid fa-plus"></i> 항목 추가</button>}
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            );
+        };
+
+        // ==========================================
+        // 컴포넌트: 자재반입 달력 (Materials)
+        // ==========================================
+        const MaterialTab = ({ materials, isMaster, myCompany, handleAddMaterial, handleApproveMaterial, handleDeleteMaterial }) => {
+            const [currentDate, setCurrentDate] = useState(new Date());
+            const [showModal, setShowModal] = useState(false);
+            const [selectedDateStr, setSelectedDateStr] = useState('');
+            const [newMat, setNewMat] = useState({ time: '오전', text: '' });
+
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const firstDay = new Date(year, month, 1).getDay();
+
+            const renderDays = () => {
+                const days = [];
+                for (let i = 0; i < firstDay; i++) days.push(<div key={`empty-${i}`} className="p-2 border-r border-b border-slate-100 bg-slate-50/50"></div>);
+                
+                for (let d = 1; d <= daysInMonth; d++) {
+                    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                    const dayMats = materials.filter(m => m.date === dateStr);
+                    
+                    days.push(
+                        <div key={d} onClick={()=>{ setSelectedDateStr(dateStr); setShowModal(true); }} className="p-2 border-r border-b border-slate-100 min-h-[100px] bg-white hover:bg-blue-50 cursor-pointer group transition relative">
+                            <span className="text-xs font-bold text-slate-500 group-hover:text-blue-600">{d}</span>
+                            <div className="mt-1 flex flex-col gap-1">
+                                {dayMats.map(m => (
+                                    <div key={m.id} className={`text-[9px] px-1.5 py-1 rounded shadow-sm flex flex-col gap-0.5 ${m.status === 'approved' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800 border border-amber-200'}`}>
+                                        <div className="flex justify-between items-start font-bold">
+                                            <div>
+                                                <span>[{m.time}]</span> {m.status==='pending' && <span className="animate-pulse ml-1 text-amber-600">미확정</span>}
+                                            </div>
+                                            {isMaster && (
+                                                <button onClick={(e) => { e.stopPropagation(); handleDeleteMaterial(m.id); }} className="text-rose-400 hover:text-rose-600 px-1" title="일정 삭제">
+                                                    <i className="fa-solid fa-xmark"></i>
+                                                </button>
+                                            )}
+                                        </div>
+                                        <div className="truncate text-slate-700">{m.subName} - {m.text}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    );
+                }
+                return days;
+            };
+
+            const submitMat = (e) => {
+                e.preventDefault();
+                if(!newMat.text.trim()) return;
+                handleAddMaterial({ date: selectedDateStr, time: newMat.time, text: newMat.text, subName: isMaster ? '원청' : myCompany });
+                setShowModal(false); setNewMat({ time: '오전', text: '' });
+            };
+
+            return (
+                <div className="space-y-6 animate-fade-in">
+                    <div className="bg-white rounded-2xl shadow border border-slate-100 overflow-hidden">
+                        <div className="p-6 bg-slate-800 text-white flex justify-between items-center">
+                            <h2 className="text-lg font-bold flex items-center gap-2"><i className="fa-regular fa-calendar-check text-blue-400"></i> 자재반입 및 일정 관리</h2>
+                            <div className="flex items-center gap-4">
+                                <button onClick={()=>setCurrentDate(new Date(year, month - 1, 1))} className="hover:text-blue-400"><i className="fa-solid fa-chevron-left"></i></button>
+                                <span className="font-black text-xl tracking-widest">{year}. {String(month+1).padStart(2,'0')}</span>
+                                <button onClick={()=>setCurrentDate(new Date(year, month + 1, 1))} className="hover:text-blue-400"><i className="fa-solid fa-chevron-right"></i></button>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50">
+                            {['일','월','화','수','목','금','토'].map(day => <div key={day} className="py-3 text-center text-xs font-bold text-slate-500 border-r border-slate-200">{day}</div>)}
+                        </div>
+                        <div className="grid grid-cols-7">
+                            {renderDays()}
+                        </div>
+                    </div>
+
+                    {isMaster && materials.filter(m => m.status === 'pending').length > 0 && (
+                        <div className="bg-amber-50 rounded-2xl p-6 border border-amber-200 shadow-sm">
+                            <h3 className="font-bold text-amber-800 mb-4"><i className="fa-solid fa-bell"></i> 승인 대기중인 일정</h3>
+                            <div className="space-y-2">
+                                {materials.filter(m => m.status === 'pending').map(m => (
+                                    <div key={m.id} className="bg-white p-3 rounded-lg flex justify-between items-center shadow-sm border border-amber-100">
+                                        <div className="text-sm"><span className="font-bold text-slate-700">{m.date} [{m.time}]</span> <span className="text-blue-600 font-medium ml-2">{m.subName}</span> - {m.text}</div>
+                                        <div className="flex gap-2">
+                                            <button onClick={()=>handleApproveMaterial(m.id)} className="bg-emerald-500 text-white text-[10px] px-3 py-1.5 rounded font-bold">승인</button>
+                                            <button onClick={()=>handleDeleteMaterial(m.id)} className="bg-rose-500 text-white text-[10px] px-3 py-1.5 rounded font-bold">거절</button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {showModal && (
+                        <div className="fixed inset-0 bg-black/60 z-50 flex justify-center items-center p-4">
+                            <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl animate-fade-in-down">
+                                <h3 className="text-lg font-bold text-slate-800 mb-4">{selectedDateStr} 일정 등록</h3>
+                                <form onSubmit={submitMat} className="space-y-4">
+                                    <div className="flex gap-2">
+                                        <button type="button" onClick={()=>setNewMat({...newMat, time:'오전'})} className={`flex-1 py-2 rounded-lg font-bold text-sm border ${newMat.time==='오전'?'bg-blue-600 text-white border-blue-600':'bg-slate-50 text-slate-500'}`}>오전</button>
+                                        <button type="button" onClick={()=>setNewMat({...newMat, time:'오후'})} className={`flex-1 py-2 rounded-lg font-bold text-sm border ${newMat.time==='오후'?'bg-blue-600 text-white border-blue-600':'bg-slate-50 text-slate-500'}`}>오후</button>
+                                    </div>
+                                    <div><label className="text-xs font-bold text-slate-500">반입 자재 및 내용</label><input className="w-full mt-1 p-3 border rounded-xl text-sm" placeholder="예: 철근 10t 반입" value={newMat.text} onChange={e=>setNewMat({...newMat, text:e.target.value})} required autoFocus/></div>
+                                    <div className="flex gap-2 pt-2">
+                                        <button type="submit" className="flex-1 bg-slate-800 text-white py-3 rounded-xl font-bold shadow">{isMaster ? '일정 등록' : '등록 요청'}</button>
+                                        <button type="button" onClick={()=>setShowModal(false)} className="flex-1 bg-slate-200 text-slate-700 py-3 rounded-xl font-bold">취소</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // ==========================================
+        // 컴포넌트: 체크리스트 (Master Only)
+        // ==========================================
+        const ChecklistTab = ({ checklists, riskMapping, handleAddChecklist, handleToggleChecklist, handleDeleteChecklist }) => {
+            const [newCheck, setNewCheck] = useState({ date: new Date().toISOString().split('T')[0], trade: Object.keys(riskMapping)[0] || '', location: '', content: '', dueDate: new Date().toISOString().split('T')[0] });
+            const [img, setImg] = useState(null);
+            const fileRef = useRef(null);
+            const [expandedImage, setExpandedImage] = useState(null); // 확대된 이미지 상태 관리
+
+            const handleImg = (e) => {
+                const f = e.target.files[0];
+                if (f) {
+                    const r = new FileReader();
+                    r.onloadend = () => {
+                        const imgObj = new Image();
+                        imgObj.onload = () => {
+                            const canvas = document.createElement('canvas');
+                            let width = imgObj.width;
+                            let height = imgObj.height;
+                            const MAX_WIDTH = 800; // 가로 최대 길이 제한
+                            if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
+                            canvas.width = width; canvas.height = height;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(imgObj, 0, 0, width, height);
+                            setImg(canvas.toDataURL('image/jpeg', 0.6)); // 압축
+                        };
+                        imgObj.src = r.result;
+                    };
+                    r.readAsDataURL(f);
+                }
+            };
+            
+            const onSubmit = (e) => {
+                e.preventDefault();
+                handleAddChecklist({...newCheck, image: img});
+                setNewCheck({ ...newCheck, location: '', content: '' }); setImg(null); if(fileRef.current) fileRef.current.value = '';
+            };
+
+            return (
+                <div className="space-y-6 animate-fade-in">
+                    <div className="bg-white rounded-2xl shadow border border-slate-100 p-6">
+                        <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-slate-800"><i className="fa-solid fa-clipboard-check text-emerald-600"></i> 마스터 체크리스트 등록</h2>
+                        <form onSubmit={onSubmit} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500">등록일자</label><input type="date" className="w-full p-2.5 border rounded-lg text-sm bg-slate-50" value={newCheck.date} onChange={e=>setNewCheck({...newCheck, date:e.target.value})} required/></div>
+                            <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500">공종</label><select className="w-full p-2.5 border rounded-lg text-sm bg-slate-50" value={newCheck.trade} onChange={e=>setNewCheck({...newCheck, trade:e.target.value})}>{Object.keys(riskMapping).map(t=><option key={t}>{t}</option>)}</select></div>
+                            <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500">현장위치</label><input type="text" className="w-full p-2.5 border rounded-lg text-sm bg-slate-50" value={newCheck.location} onChange={e=>setNewCheck({...newCheck, location:e.target.value})} required/></div>
+                            <div className="space-y-1"><label className="text-[10px] font-bold text-slate-500">완료 예정일</label><input type="date" className="w-full p-2.5 border rounded-lg text-sm bg-slate-50" value={newCheck.dueDate} onChange={e=>setNewCheck({...newCheck, dueDate:e.target.value})} required/></div>
+                            <div className="space-y-1 md:col-span-2 lg:col-span-3"><label className="text-[10px] font-bold text-slate-500">점검 내용</label><input type="text" className="w-full p-2.5 border rounded-lg text-sm bg-slate-50" placeholder="점검 및 지시사항 입력" value={newCheck.content} onChange={e=>setNewCheck({...newCheck, content:e.target.value})} required/></div>
+                            <div className="flex gap-2 items-end">
+                                <label className="flex-1 bg-white border border-slate-300 text-slate-600 text-sm font-bold p-2.5 rounded-lg flex justify-center items-center cursor-pointer hover:bg-slate-50 transition"><i className="fa-solid fa-camera mr-2"></i> {img ? '사진 재선택' : '사진 첨부'}<input type="file" className="hidden" accept="image/*" onChange={handleImg} ref={fileRef}/></label>
+                                <button type="submit" className="flex-1 bg-emerald-600 text-white font-bold p-2.5 rounded-lg shadow hover:bg-emerald-700 transition">등록</button>
+                            </div>
+                        </form>
+                        {img && <img src={img} className="h-20 object-cover mt-3 rounded-lg border shadow-sm" alt="preview"/>}
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {checklists.map(c => (
+                            <div key={c.id} className={`bg-white rounded-xl border p-4 shadow-sm flex gap-4 transition-all ${c.isCompleted ? 'opacity-60 grayscale bg-slate-50' : 'border-slate-200'}`}>
+                                {c.image ? <img src={c.image} onClick={() => setExpandedImage(c.image)} className="w-24 h-24 object-cover rounded-lg border cursor-pointer hover:opacity-80 transition" alt="checklist"/> : <div className="w-24 h-24 bg-slate-100 rounded-lg flex items-center justify-center text-slate-300"><i className="fa-solid fa-image text-2xl"></i></div>}
+                                <div className="flex-1 relative">
+                                    <div className="flex justify-between items-start mb-1">
+                                        <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded">{c.trade}</span>
+                                        <div className="flex items-center gap-3">
+                                            <button onClick={()=>handleToggleChecklist(c.id, !c.isCompleted)} className={`px-3 py-1 rounded text-xs font-bold transition border ${c.isCompleted ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-white text-slate-400 border-slate-300 hover:border-emerald-500 hover:text-emerald-500'}`}><i className="fa-solid fa-check"></i> 완료 확인</button>
+                                            <button onClick={()=>handleDeleteChecklist(c.id)} className="text-slate-300 hover:text-rose-500"><i className="fa-solid fa-xmark"></i></button>
+                                        </div>
+                                    </div>
+                                    <div className="text-xs font-bold text-slate-500 mb-1"><i className="fa-solid fa-location-dot mr-1"></i>{c.location}</div>
+                                    <p className="text-sm font-bold text-slate-800 leading-snug">{c.content}</p>
+                                    <div className="absolute bottom-0 left-0 flex gap-2 text-[10px] text-slate-400 font-medium">
+                                        <span>등록: {c.date}</span><span>|</span><span className={c.isCompleted ? '' : 'text-rose-500 font-bold'}>예정: {c.dueDate}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* 사진 확대 모달 */}
+                    {expandedImage && (
+                        <div className="fixed inset-0 z-50 bg-black/90 flex justify-center items-center p-4 cursor-pointer animate-fade-in" onClick={() => setExpandedImage(null)}>
+                            <button className="absolute top-6 right-6 text-white hover:text-rose-500 transition z-50"><i className="fa-solid fa-xmark text-4xl"></i></button>
+                            <img src={expandedImage} className="max-w-full max-h-full object-contain rounded-xl shadow-2xl cursor-default" onClick={(e) => e.stopPropagation()} alt="expanded"/>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // ==========================================
+        // 컴포넌트: 설정 (Master Only)
+        // ==========================================
+        const SettingsTab = ({ passwords, handleUpdatePasswords, savedSubs, handleAddSavedSub, handleUpdateSavedSub, handleDeleteSavedSub, showToast }) => {
+            const [localPasswords, setLocalPasswords] = useState(passwords);
+            const [newSubName, setNewSubName] = useState('');
+            const [newSubPw, setNewSubPw] = useState('');
+            
+            // 수정 상태 관리
+            const [editSubId, setEditSubId] = useState(null);
+            const [editSubData, setEditSubData] = useState({ name: '', password: '' });
+            const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+
+            const onSubmitGlobal = (e) => {
+                e.preventDefault();
+                handleUpdatePasswords(localPasswords);
+            };
+
+            const onAddSub = (e) => {
+                e.preventDefault();
+                if(!newSubName.trim() || !newSubPw.trim()) return showToast('협력사명과 비밀번호를 모두 입력하세요.');
+                if(savedSubs.some(s => s.name === newSubName)) return showToast('이미 존재하는 협력사입니다.');
+                handleAddSavedSub({ name: newSubName.trim(), password: newSubPw.trim(), manager: '', phone: '' });
+                setNewSubName(''); setNewSubPw('');
+            };
+
+            const startEdit = (sub) => {
+                setEditSubId(sub.id);
+                setEditSubData({ name: sub.name, password: sub.password || 'sub1234' });
+                setDeleteConfirmId(null);
+            };
+
+            const saveEdit = () => {
+                if(!editSubData.name.trim() || !editSubData.password.trim()) return showToast('값을 모두 입력해주세요.');
+                handleUpdateSavedSub(editSubId, editSubData);
+                setEditSubId(null);
+            };
+
+            return (
+                <div className="space-y-6 animate-fade-in grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                    {/* 공통 패스워드 설정 */}
+                    <div className="bg-white rounded-2xl shadow border border-slate-100 p-6 md:p-8">
+                        <h2 className="text-xl font-bold mb-6 flex items-center gap-2"><i className="fa-solid fa-lock text-slate-800"></i> 공통 관리자 비밀번호</h2>
+                        <form onSubmit={onSubmitGlobal} className="space-y-4">
+                            {Object.keys(localPasswords).filter(r => r !== '협력사 소장/관리자').map(role => (
+                                <div key={role} className="space-y-2">
+                                    <label className="text-xs font-bold text-slate-600">{role} 접속 비밀번호</label>
+                                    <input type="text" className="w-full p-3 border border-slate-200 rounded-xl text-sm bg-slate-50 font-bold text-blue-600 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition" value={localPasswords[role]} onChange={e => setLocalPasswords({...localPasswords, [role]: e.target.value})} required />
+                                </div>
+                            ))}
+                            <div className="pt-4">
+                                <button type="submit" className="bg-slate-800 hover:bg-black transition text-white px-8 py-3 rounded-xl font-bold shadow w-full"><i className="fa-solid fa-floppy-disk mr-2"></i>비밀번호 변경 저장</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    {/* 협력사 관리 및 개별 비밀번호 */}
+                    <div className="bg-white rounded-2xl shadow border border-slate-100 p-6 md:p-8">
+                        <h2 className="text-xl font-bold mb-6 flex items-center gap-2"><i className="fa-solid fa-users-gear text-slate-800"></i> 협력사 등록 및 개별 비밀번호</h2>
+                        <form onSubmit={onAddSub} className="flex flex-col sm:flex-row gap-2 mb-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                            <input type="text" placeholder="협력사명" className="flex-1 p-2.5 border rounded-lg text-sm font-bold bg-white outline-none focus:border-blue-500" value={newSubName} onChange={e=>setNewSubName(e.target.value)} required />
+                            <input type="text" placeholder="초기 접속 PW" className="w-32 p-2.5 border rounded-lg text-sm font-bold bg-white outline-none focus:border-blue-500" value={newSubPw} onChange={e=>setNewSubPw(e.target.value)} required />
+                            <button type="submit" className="bg-blue-600 text-white px-4 py-2.5 rounded-lg font-bold shadow hover:bg-blue-700 transition whitespace-nowrap"><i className="fa-solid fa-plus"></i> 추가</button>
+                        </form>
+
+                        <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
+                            {savedSubs.map(sub => {
+                                const isEditing = editSubId === sub.id;
+                                const isConfirmDelete = deleteConfirmId === sub.id;
+
+                                return (
+                                <div key={sub.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-white border border-slate-200 rounded-xl hover:border-blue-300 transition gap-2">
+                                    {isEditing ? (
+                                        <>
+                                            <input type="text" className="flex-1 p-2 border rounded text-sm font-bold bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-blue-100" value={editSubData.name} onChange={e=>setEditSubData({...editSubData, name: e.target.value})} placeholder="협력사명" />
+                                            <input type="text" className="w-full sm:w-28 p-2 border rounded text-sm font-bold bg-slate-50 focus:bg-white outline-none focus:ring-2 focus:ring-blue-100" value={editSubData.password} onChange={e=>setEditSubData({...editSubData, password: e.target.value})} placeholder="비밀번호" />
+                                            <div className="flex gap-1">
+                                                <button onClick={saveEdit} className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded font-bold shadow transition">저장</button>
+                                                <button onClick={() => setEditSubId(null)} className="text-xs bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-2 rounded font-bold transition">취소</button>
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span className="font-bold text-slate-700 text-sm">{sub.name}</span>
+                                            <div className="flex items-center gap-2">
+                                                <div className="bg-slate-50 px-3 py-1.5 rounded-lg border text-xs font-bold text-slate-500">PW: <span className="text-blue-600">{sub.password || 'sub1234'}</span></div>
+                                                
+                                                {isConfirmDelete ? (
+                                                    <div className="flex gap-1 items-center bg-rose-50 p-1 rounded-lg border border-rose-100">
+                                                        <span className="text-[10px] text-rose-600 font-bold px-1">진짜 삭제?</span>
+                                                        <button onClick={() => { handleDeleteSavedSub(sub.id); setDeleteConfirmId(null); }} className="text-xs bg-rose-500 hover:bg-rose-600 text-white px-2 py-1 rounded font-bold transition">확인</button>
+                                                        <button onClick={() => setDeleteConfirmId(null)} className="text-xs bg-white border border-slate-300 text-slate-700 px-2 py-1 rounded font-bold transition">취소</button>
+                                                    </div>
+                                                ) : (
+                                                    <>
+                                                        <button onClick={() => startEdit(sub)} className="text-xs bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-1.5 rounded font-bold transition">수정</button>
+                                                        <button onClick={() => setDeleteConfirmId(sub.id)} className="text-xs bg-rose-100 hover:bg-rose-200 text-rose-600 px-2 py-1.5 rounded font-bold transition"><i className="fa-solid fa-trash-can"></i></button>
+                                                    </>
+                                                )}
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            )})}
+                            {savedSubs.length === 0 && <div className="text-center py-6 text-slate-400 text-sm">등록된 협력사가 없습니다.</div>}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // ==========================================
+        // 메인 App 컴포넌트
+        // ==========================================
+        function App() {
+            const INITIAL_RISK_MAPPING = {
+                '가설공사': '추락(안전대 미체결), 자재 낙하', '토공사': '중장비 충돌/협착, 토사 붕괴', '철근콘크리트': '개구부 추락, 펌프카 타격', '철골공사': '고소작업 추락, 화재', '조적/미장/방수': '밀폐공간 질식', '전기/설비': '활선작업 감전', '기타': '자재 찔림/베임'
+            };
+            const INITIAL_PASSWORDS = { '원청 관리자 (Master)': 'admin1234', '감리단 / 발주처': 'sup1234' };
+
+            // 오늘 날짜 구하기 (YYYY-MM-DD 형식)
+            const getTodayStr = () => {
+                const d = new Date();
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            };
+            const todayStr = getTodayStr();
+
+            // 전일 날짜 구하기 (YYYY-MM-DD 형식)
+            const getYesterdayStr = () => {
+                const d = new Date();
+                d.setDate(d.getDate() - 1);
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            };
+            const yesterdayStr = getYesterdayStr();
+
+            const [user, setUser] = useState(null);
+            const [isEntered, setIsEntered] = useState(false);
+            const [loginRole, setLoginRole] = useState('원청 관리자 (Master)');
+            const [myCompany, setMyCompany] = useState(''); // 협력사 식별용
+            const [loginPwd, setLoginPwd] = useState('');
+            const [activeTab, setActiveTab] = useState('dashboard');
+            const [hasNewNotification, setHasNewNotification] = useState(false);
+            const [toasts, setToasts] = useState([]);
+            
+            const [savedSubs, setSavedSubs] = useState([]);
+            const [subcontractors, setSubcontractors] = useState([]);
+            const [tasks, setTasks] = useState([]);
+            const [materials, setMaterials] = useState([]);
+            const [checklists, setChecklists] = useState([]);
+            const [requests, setRequests] = useState([]);
+            const [riskMapping, setRiskMapping] = useState(INITIAL_RISK_MAPPING);
+            const [passwords, setPasswords] = useState(INITIAL_PASSWORDS);
+
+            const isMaster = loginRole.includes('Master');
+
+            const stats = useMemo(() => {
+                let totalAssigned=0, currentWorking=0, totalElderly=0, totalNew=0, totalForeigner=0, totalFemale=0;
+                // 금일 데이터만 통계에 반영 (과거 누적 분리)
+                const todaysSubs = subcontractors.filter(sub => sub.date === todayStr);
+                
+                todaysSubs.forEach(sub => {
+                    const assigned = (sub.early||0) + (sub.day||0) + (sub.night||0);
+                    totalAssigned += assigned;
+                    let working = 0;
+                    if (sub.early > 0 && !sub.clockedOut?.early) working += sub.early;
+                    if (sub.day > 0 && !sub.clockedOut?.day) working += sub.day;
+                    if (sub.night > 0 && !sub.clockedOut?.night) working += sub.night;
+                    currentWorking += working;
+                    totalElderly += (sub.elderly||0); totalNew += (sub.new||0); totalForeigner += (sub.foreigner||0); totalFemale += (sub.female||0);
+                });
+                return { totalAssigned, currentWorking, totalElderly, totalNew, totalForeigner, totalFemale };
+            }, [subcontractors, todayStr]);
+
+            const dummyWeather = {
+                today: { icon: <i className="fa-solid fa-sun text-rose-500 text-3xl"></i>, desc: '맑음', temp: '22℃' },
+                tomorrow: { icon: <i className="fa-solid fa-cloud text-slate-400 text-3xl"></i>, desc: '구름많음', temp: '19℃' }
+            };
+
+            const showToast = (message) => {
+                const id = Date.now();
+                setToasts(prev => [...prev, { id, message }]);
+                setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
+            };
+
+            useEffect(() => {
+                const initAuth = async () => {
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        try { await signInWithCustomToken(auth, __initial_auth_token); } catch(e) { await signInAnonymously(auth); }
+                    } else { await signInAnonymously(auth); }
+                };
+                initAuth();
+                const unsub = onAuthStateChanged(auth, setUser);
+                return () => unsub();
+            }, []);
+
+            useEffect(() => {
+                if (!user || !db) return;
+                const getPublicCol = (colName) => collection(db, 'artifacts', appId, 'public', 'data', colName);
+
+                const unsubSavedSubs = onSnapshot(getPublicCol('saved_subs'), snap => {
+                    const data = snap.docs.map(d => ({id: d.id, ...d.data()}));
+                    if (data.length === 0) {
+                        ['(주)제일건설', '대지토건(주)'].forEach((name, i) => setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'saved_subs', String(i)), {name, manager:'', phone:'', password: 'sub1234'}));
+                    } else setSavedSubs(data);
+                }, e => console.error(e));
+
+                const unsubSubs = onSnapshot(getPublicCol('subcontractors'), snap => setSubcontractors(snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b)=>b.createdAt-a.createdAt)), e=>console.error(e));
+                const unsubTasks = onSnapshot(getPublicCol('tasks'), snap => setTasks(snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b)=>b.createdAt-a.createdAt)), e=>console.error(e));
+                const unsubMats = onSnapshot(getPublicCol('materials'), snap => setMaterials(snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b)=>b.createdAt-a.createdAt)), e=>console.error(e));
+                const unsubChecks = onSnapshot(getPublicCol('checklists'), snap => setChecklists(snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b)=>b.createdAt-a.createdAt)), e=>console.error(e));
+                const unsubReqs = onSnapshot(getPublicCol('requests'), snap => { setRequests(snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b)=>b.createdAt-a.createdAt)); setHasNewNotification(true); }, e=>console.error(e));
+                
+                const unsubSettings = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'global'), snap => {
+                    if (snap.exists()) {
+                        const d = snap.data(); if(d.riskMapping) setRiskMapping(d.riskMapping); if(d.passwords) setPasswords(d.passwords);
+                    } else setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'global'), { riskMapping: INITIAL_RISK_MAPPING, passwords: INITIAL_PASSWORDS });
+                }, e=>console.error(e));
+
+                return () => { unsubSavedSubs(); unsubSubs(); unsubTasks(); unsubMats(); unsubChecks(); unsubReqs(); unsubSettings(); };
+            }, [user]);
+
+            const getDocRef = (col, docId) => doc(db, 'artifacts', appId, 'public', 'data', col, String(docId));
+
+            // 로그인 로직 처리
+            const handleLogin = () => {
+                if (loginRole === '협력사 소장/관리자') {
+                    if (!myCompany) return alert('소속 협력사를 선택해주세요.');
+                    const subData = savedSubs.find(s => s.name === myCompany);
+                    if (!subData) return alert('등록되지 않은 협력사입니다.');
+                    if (loginPwd !== (subData.password || 'sub1234')) return alert('비밀번호가 일치하지 않습니다.');
+                } else {
+                    if (loginPwd !== passwords[loginRole]) return alert('비밀번호가 일치하지 않습니다.');
+                }
+                setIsEntered(true);
+            };
+
+            // 출역 API
+            const handleAddSubToDB = async (data) => {
+                if(!user) return;
+                await setDoc(getDocRef('subcontractors', Date.now().toString()), { ...data, date: todayStr, status: isMaster ? 'approved' : 'pending', clockedOut: {}, createdAt: Date.now() });
+                showToast(isMaster ? '출역이 등록되었습니다.' : '출역 승인 요청이 전송되었습니다.');
+            };
+            const handleUpdateSubToDB = async (id, data, masterFlag) => {
+                if(!user) return;
+                if(masterFlag) {
+                    await updateDoc(getDocRef('subcontractors', id), { ...data, status: 'approved', pendingData: null });
+                    showToast('수정이 완료되었습니다.');
+                } else {
+                    await updateDoc(getDocRef('subcontractors', id), { status: 'pending_update', pendingData: data }); 
+                    showToast('수정 요청이 전송되었습니다. (원청 승인 대기)');
+                }
+            };
+            const handleApproveSubUpdate = async (id, pendingData) => {
+                if(!user) return;
+                await updateDoc(getDocRef('subcontractors', id), { ...pendingData, status: 'approved', pendingData: null });
+            };
+            const handleRejectSubUpdate = async (id) => {
+                if(!user) return;
+                await updateDoc(getDocRef('subcontractors', id), { status: 'approved', pendingData: null });
+            };
+            const handleClockOut = async (id, shift, name) => {
+                if(!user || !confirm(`${name} 퇴근?`)) return;
+                await updateDoc(getDocRef('subcontractors', id), { [`clockedOut.${shift}`]: true });
+            };
+
+            // 작업 API
+            const handleAddTaskToDB = async (data) => {
+                if(!user) return;
+                await setDoc(getDocRef('tasks', Date.now().toString()), { ...data, status: isMaster ? 'approved' : 'pending', createdAt: Date.now() });
+                showToast(isMaster ? '작업이 등록되었습니다.' : '작업 승인 요청이 전송되었습니다.');
+            };
+            const handleUpdateTaskToDB = async (id, data, masterFlag) => {
+                if(!user) return;
+                if(masterFlag) {
+                    await updateDoc(getDocRef('tasks', id), { ...data, status: 'approved', pendingData: null });
+                    showToast('작업 수정이 완료되었습니다.');
+                } else {
+                    await updateDoc(getDocRef('tasks', id), { status: 'pending_update', pendingData: data }); 
+                    showToast('작업 수정이 요청되었습니다.');
+                }
+            };
+            const handleApproveTaskUpdate = async (id, pendingData) => {
+                if(!user) return;
+                await updateDoc(getDocRef('tasks', id), { ...pendingData, status: 'approved', pendingData: null });
+            };
+            const handleRejectTaskUpdate = async (id) => {
+                if(!user) return;
+                await updateDoc(getDocRef('tasks', id), { status: 'approved', pendingData: null });
+            };
+
+            // 자재 반입 API
+            const handleAddMaterial = async (data) => {
+                if(!user) return;
+                await setDoc(getDocRef('materials', Date.now().toString()), { ...data, status: isMaster ? 'approved' : 'pending', createdAt: Date.now() }); 
+                showToast(isMaster ? '일정이 등록되었습니다.' : '자재 반입 일정이 요청되었습니다.');
+            };
+            const handleApproveMaterial = async (id) => {
+                if(!user) return; await updateDoc(getDocRef('materials', id), { status: 'approved' });
+            };
+            const handleDeleteMaterial = async (id) => {
+                if(!user || !confirm('삭제하시겠습니까?')) return; await deleteDoc(getDocRef('materials', id));
+            };
+
+            // 체크리스트 API
+            const handleAddChecklist = async (data) => {
+                if(!user) return;
+                try {
+                    await setDoc(getDocRef('checklists', Date.now().toString()), { ...data, isCompleted: false, createdAt: Date.now() });
+                } catch(e) {
+                    alert('업로드 실패: 사진 용량이 너무 큽니다. 다른 사진을 시도해주세요.');
+                    console.error(e);
+                }
+            };
+            const handleToggleChecklist = async (id, isCompleted) => {
+                if(!user) return; await updateDoc(getDocRef('checklists', id), { isCompleted });
+            };
+            const handleDeleteChecklist = async (id) => {
+                if(!user || !confirm('체크리스트를 삭제하시겠습니까?')) return; await deleteDoc(getDocRef('checklists', id));
+            };
+
+            const handleUpdatePasswords = async (newPasswords) => {
+                if(!user) return;
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'global'), { passwords: newPasswords });
+                showToast('비밀번호가 안전하게 변경되었습니다.');
+            };
+
+            const handleAddSavedSubToDB = async (data) => {
+                if(!user) return;
+                await setDoc(getDocRef('saved_subs', Date.now().toString()), { ...data, createdAt: Date.now() });
+                showToast('협력사가 등록되었습니다.');
+            };
+
+            const handleUpdateSavedSubToDB = async (id, data) => {
+                if(!user) return;
+                await updateDoc(getDocRef('saved_subs', id), data);
+                showToast('협력사 정보가 업데이트되었습니다.');
+            };
+
+            const handleDeleteSavedSubFromDB = async (id) => {
+                if(!user) return;
+                await deleteDoc(getDocRef('saved_subs', id));
+                showToast('협력사가 삭제되었습니다.');
+            };
+
+            const handleAddRequestToDB = async (newReq, img, currentRole) => {
+                if(!user || !db) return;
+                try {
+                    const newId = Date.now().toString();
+                    await setDoc(getDocRef('requests', newId), {
+                        sender: `${currentRole.split(' ')[0]} (나)`, type: newReq.type, content: newReq.content, image: img,
+                        time: new Date().toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' }), status: '대기', createdAt: Date.now()
+                    });
+                    showToast('메시지가 전송되었습니다.');
+                } catch(e) {
+                    alert('전송 실패: 사진 용량이 너무 큽니다. 다른 사진을 시도해주세요.');
+                    console.error(e);
+                }
+            };
+            const deleteRequest = async (id) => { if(!user) return; await deleteDoc(getDocRef('requests', id)); };
+
+            const todayDateString = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+
+            if (!isEntered) {
+                return (
+                    <div className="min-h-screen bg-slate-900 flex justify-center items-center p-4">
+                        <div className="bg-white rounded-3xl p-10 max-w-md w-full animate-fade-in-down border border-slate-100">
+                            <div className="flex justify-center mb-6"><div className="bg-blue-600 p-5 rounded-3xl shadow-lg"><i className="fa-solid fa-helmet-safety text-5xl text-white"></i></div></div>
+                            <h1 className="text-2xl font-bold text-center text-slate-800 mb-10 tracking-tight">동작 프리센트 현장관리</h1>
+                            <div className="space-y-4 mb-8">
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-400 mb-1 uppercase">Access Role</label>
+                                    <select className="w-full p-4 border rounded-xl text-sm font-bold bg-slate-50" value={loginRole} onChange={e => {setLoginRole(e.target.value); setMyCompany('');}}>
+                                        <option>원청 관리자 (Master)</option><option>협력사 소장/관리자</option><option>감리단 / 발주처</option>
+                                    </select>
+                                </div>
+                                {loginRole === '협력사 소장/관리자' && (
+                                    <div className="animate-fade-in">
+                                        <label className="block text-[10px] font-black text-rose-500 mb-1 uppercase">Select Your Company (권한 식별용)</label>
+                                        <select className="w-full p-4 border border-rose-200 rounded-xl text-sm font-bold bg-rose-50 outline-none focus:ring-2 focus:ring-rose-500" value={myCompany} onChange={e => setMyCompany(e.target.value)}>
+                                            <option value="" disabled>소속 협력사를 선택해주세요</option>
+                                            {savedSubs.map((s,i) => <option key={i} value={s.name}>{s.name}</option>)}
+                                        </select>
+                                    </div>
+                                )}
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-400 mb-1 uppercase">Passcode</label>
+                                    <input type="password" placeholder="········" className="w-full p-4 border rounded-xl text-sm bg-slate-50 font-black" value={loginPwd} onChange={e => setLoginPwd(e.target.value)} onKeyDown={e => e.key==='Enter' && handleLogin()}/>
+                                </div>
+                            </div>
+                            <button onClick={handleLogin} className="w-full bg-slate-800 text-white font-bold py-4 rounded-xl hover:bg-black transition">시스템 접속 <i className="fa-solid fa-arrow-right ml-2"></i></button>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (!user) return <div className="min-h-screen bg-slate-900 flex justify-center items-center"><i className="fa-solid fa-spinner fa-spin text-white text-3xl"></i></div>;
+
+            return (
+                <div className="min-h-screen font-sans text-slate-900 pb-20">
+                    <div className="fixed top-4 right-4 z-50 space-y-2">{toasts.map(t => (<div key={t.id} className="bg-slate-800 text-white px-5 py-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-fade-in-down border border-slate-700"><i className="fa-solid fa-circle-check text-emerald-400"></i><p className="text-sm font-bold">{t.message}</p></div>))}</div>
+                    <nav className="bg-slate-900 text-white sticky top-0 z-40 shadow-xl">
+                        <div className="max-w-7xl mx-auto px-6 flex items-center justify-between h-16">
+                            <div className="flex items-center gap-3">
+                                <div className="bg-blue-600 p-2 rounded-lg"><i className="fa-solid fa-helmet-safety"></i></div>
+                                <h1 className="font-bold tracking-tight text-lg">동작 프리센트</h1>
+                            </div>
+                            <div className="flex items-center gap-4 text-sm">
+                                <button onClick={() => setHasNewNotification(false)} className="relative p-2 text-slate-400 hover:text-white transition" title="알림 확인"><i className="fa-solid fa-bell text-xl"></i>{hasNewNotification && <span className="absolute top-2 right-1.5 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-slate-900 animate-pulse"></span>}</button>
+                                <span className="hidden sm:inline bg-white/10 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-300">{loginRole.split(' ')[0]} {myCompany && `(${myCompany})`}</span>
+                                <button onClick={()=>setIsEntered(false)} className="text-slate-400 hover:text-white"><i className="fa-solid fa-power-off"></i></button>
+                            </div>
+                        </div>
+                        <div className="border-t border-white/10">
+                            <div className="max-w-7xl mx-auto px-6 flex overflow-x-auto hide-scrollbar">
+                                {[
+                                    { id: 'dashboard', icon: 'fa-house', label: '홈' },
+                                    { id: 'attendance', icon: 'fa-users', label: '출역' },
+                                    { id: 'dailyReport', icon: 'fa-file-lines', label: '출역일보', masterOnly: true },
+                                    { id: 'tasks', icon: 'fa-list-check', label: '작업/위험' },
+                                    { id: 'materials', icon: 'fa-calendar-check', label: '자재반입' },
+                                    { id: 'requests', icon: 'fa-comment-dots', label: '소통' },
+                                    { id: 'checklists', icon: 'fa-clipboard-check', label: '체크리스트', masterOnly: true },
+                                    { id: 'settings', icon: 'fa-gear', label: '설정', masterOnly: true }
+                                ].map(t => (!t.masterOnly || isMaster) && (
+                                    <button key={t.id} onClick={()=>setActiveTab(t.id)} className={`px-5 py-3 text-xs font-bold whitespace-nowrap border-b-2 transition flex items-center gap-1.5 ${activeTab===t.id ? 'border-blue-500 text-white bg-white/5' : 'border-transparent text-slate-400 hover:text-slate-200'}`}>
+                                        <i className={`fa-solid ${t.icon}`}></i> {t.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </nav>
+
+                    <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+                        {activeTab === 'dashboard' && <DashboardTab stats={stats} realWeather={dummyWeather} tasks={tasks} requests={requests} todayDateString={todayDateString} formatMd={(d)=>`${d.getMonth()+1}월 ${d.getDate()}일`} todayDate={new Date()} tomorrowDate={new Date(new Date().setDate(new Date().getDate()+1))} setActiveTab={setActiveTab} />}
+                        {activeTab === 'attendance' && <AttendanceTab subcontractors={subcontractors} savedSubs={savedSubs} riskMapping={riskMapping} stats={stats} loginRole={loginRole} isMaster={isMaster} myCompany={myCompany} handleAddSubToDB={handleAddSubToDB} handleUpdateSubToDB={handleUpdateSubToDB} handleApproveSubUpdate={handleApproveSubUpdate} handleRejectSubUpdate={handleRejectSubUpdate} deleteSubcontractor={(id)=> {if(user && confirm('삭제?')) deleteDoc(getDocRef('subcontractors',id))}} handleUpdateRiskMapping={async (k,v)=>{const nm={...riskMapping}; if(v===null) delete nm[k]; else nm[k]=v; await updateDoc(doc(db,'artifacts',appId,'public','data','settings','global'), {riskMapping:nm});}} handleClockOut={handleClockOut} todayStr={todayStr} />}
+                        {activeTab === 'dailyReport' && isMaster && <DailyReportTab subcontractors={subcontractors} tasks={tasks} todayStr={todayStr} yesterdayStr={yesterdayStr} />}
+                        {activeTab === 'tasks' && <TasksTab tasks={tasks} riskMapping={riskMapping} isMaster={isMaster} myCompany={myCompany} handleAddTaskToDB={handleAddTaskToDB} handleUpdateTaskToDB={handleUpdateTaskToDB} handleApproveTaskUpdate={handleApproveTaskUpdate} handleRejectTaskUpdate={handleRejectTaskUpdate} deleteTask={(id)=>{if(confirm('삭제?')) deleteDoc(getDocRef('tasks',id))}}/>}
+                        {activeTab === 'materials' && <MaterialTab materials={materials} isMaster={isMaster} myCompany={myCompany} handleAddMaterial={handleAddMaterial} handleApproveMaterial={handleApproveMaterial} handleDeleteMaterial={handleDeleteMaterial}/>}
+                        {activeTab === 'requests' && <CommunicationTab requests={requests} loginRole={loginRole} canDelete={isMaster} handleAddRequestToDB={handleAddRequestToDB} deleteRequest={deleteRequest} />}
+                        {activeTab === 'checklists' && isMaster && <ChecklistTab checklists={checklists} riskMapping={riskMapping} handleAddChecklist={handleAddChecklist} handleToggleChecklist={handleToggleChecklist} handleDeleteChecklist={handleDeleteChecklist}/>}
+                        {activeTab === 'settings' && isMaster && <SettingsTab passwords={passwords} handleUpdatePasswords={handleUpdatePasswords} savedSubs={savedSubs} handleAddSavedSub={handleAddSavedSubToDB} handleUpdateSavedSub={handleUpdateSavedSubToDB} handleDeleteSavedSub={handleDeleteSavedSubFromDB} showToast={showToast} />}
+                    </main>
+
+                    <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-3 flex justify-around md:hidden z-30 shadow-2xl pb-safe">
+                        <button onClick={()=>setActiveTab('dashboard')} className={`flex flex-col items-center gap-1 transition ${activeTab==='dashboard'?'text-blue-600 scale-110':'text-slate-400'}`}><i className="fa-solid fa-house"></i><span className="text-[9px] font-bold">홈</span></button>
+                        <button onClick={()=>setActiveTab('attendance')} className={`flex flex-col items-center gap-1 transition ${activeTab==='attendance'?'text-blue-600 scale-110':'text-slate-400'}`}><i className="fa-solid fa-users"></i><span className="text-[9px] font-bold">출역</span></button>
+                        <button onClick={()=>setActiveTab('tasks')} className={`flex flex-col items-center gap-1 transition ${activeTab==='tasks'?'text-blue-600 scale-110':'text-slate-400'}`}><i className="fa-solid fa-list-check"></i><span className="text-[9px] font-bold">작업</span></button>
+                        <button onClick={()=>setActiveTab('requests')} className={`flex flex-col items-center gap-1 transition ${activeTab==='requests'?'text-blue-600 scale-110':'text-slate-400'}`}><i className="fa-solid fa-comments"></i><span className="text-[9px] font-bold">소통</span></button>
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
