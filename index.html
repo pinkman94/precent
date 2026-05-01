@@ -1270,9 +1270,29 @@
             const isMaster = loginRole === '원청 관리자 (Master)';
             const isGuest = loginRole === '게스트 (조회 전용)';
 
+            // [포트폴리오 용] 게스트 모드일 경우 실제 데이터를 빈 배열로 숨김 처리 (양식만 보이도록 설정)
+            const displaySavedSubs = isGuest ? [] : savedSubs;
+            const displaySubcontractors = isGuest ? [] : subcontractors;
+            const displayTasks = isGuest ? [] : tasks;
+            const displayMaterials = isGuest ? [] : materials;
+            const displayChecklists = isGuest ? [] : checklists;
+            const displayRequests = isGuest ? [] : requests;
+            const displayDailyReports = isGuest ? [] : dailyReports;
+            // 비밀번호 폼은 빈칸으로 보이도록 처리
+            const displayPasswords = isGuest ? Object.keys(passwords).reduce((acc, key) => ({ ...acc, [key]: '' }), {}) : passwords;
+
+            const formatTs = (ts) => {
+                const d = new Date(ts);
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            };
+
             const stats = useMemo(() => {
                 let totalAssigned=0, currentWorking=0, totalElderly=0, totalNew=0, totalForeigner=0, totalFemale=0;
-                const todaysSubs = subcontractors.filter(sub => sub.date === todayStr);
+                
+                // 게스트 모드에서는 숫자도 모두 0으로 표시
+                if (isGuest) return { totalAssigned, currentWorking, totalElderly, totalNew, totalForeigner, totalFemale };
+
+                const todaysSubs = subcontractors.filter(sub => (sub.date || formatTs(sub.createdAt)) === todayStr);
                 
                 todaysSubs.forEach(sub => {
                     const assigned = (sub.early||0) + (sub.day||0) + (sub.night||0);
@@ -1285,7 +1305,7 @@
                     totalElderly += (sub.elderly||0); totalNew += (sub.new||0); totalForeigner += (sub.foreigner||0); totalFemale += (sub.female||0);
                 });
                 return { totalAssigned, currentWorking, totalElderly, totalNew, totalForeigner, totalFemale };
-            }, [subcontractors, todayStr]);
+            }, [subcontractors, todayStr, isGuest]);
 
             const dummyWeather = {
                 today: { icon: <i className="fa-solid fa-sun text-rose-500 text-3xl"></i>, desc: '맑음', temp: '22℃' },
@@ -1355,12 +1375,14 @@
             };
 
             const handleAddSubToDB = async (data) => {
-                if(!user || isGuest) return;
+                if(!user) return;
+                if(isGuest) return showToast('게스트 모드에서는 작성/수정 권한이 없습니다.');
                 await setDoc(getDocRef('subcontractors', Date.now().toString()), { ...data, status: isMaster ? 'approved' : 'pending', clockedOut: {}, createdAt: Date.now() });
                 showToast(isMaster ? '출역이 등록되었습니다.' : '출역 승인 요청이 전송되었습니다.');
             };
             const handleUpdateSubToDB = async (id, data, masterFlag) => {
-                if(!user || isGuest) return;
+                if(!user) return;
+                if(isGuest) return showToast('게스트 모드에서는 작성/수정 권한이 없습니다.');
                 if(masterFlag) {
                     await updateDoc(getDocRef('subcontractors', id), { ...data, status: 'approved', pendingData: null });
                     showToast('수정이 완료되었습니다.');
@@ -1369,17 +1391,19 @@
                     showToast('수정 요청이 전송되었습니다. (원청 승인 대기)');
                 }
             };
-            const handleApproveSubUpdate = async (id, pendingData) => { if(!user || isGuest) return; await updateDoc(getDocRef('subcontractors', id), { ...pendingData, status: 'approved', pendingData: null }); };
-            const handleRejectSubUpdate = async (id) => { if(!user || isGuest) return; await updateDoc(getDocRef('subcontractors', id), { status: 'approved', pendingData: null }); };
-            const handleClockOut = async (id, shift, name) => { if(!user || isGuest || !confirm(`${name} 퇴근?`)) return; await updateDoc(getDocRef('subcontractors', id), { [`clockedOut.${shift}`]: true }); };
+            const handleApproveSubUpdate = async (id, pendingData) => { if(!user) return; if(isGuest) return showToast('권한이 없습니다.'); await updateDoc(getDocRef('subcontractors', id), { ...pendingData, status: 'approved', pendingData: null }); };
+            const handleRejectSubUpdate = async (id) => { if(!user) return; if(isGuest) return showToast('권한이 없습니다.'); await updateDoc(getDocRef('subcontractors', id), { status: 'approved', pendingData: null }); };
+            const handleClockOut = async (id, shift, name) => { if(!user || !confirm(`${name} 퇴근?`)) return; if(isGuest) return showToast('권한이 없습니다.'); await updateDoc(getDocRef('subcontractors', id), { [`clockedOut.${shift}`]: true }); };
 
             const handleAddTaskToDB = async (data) => {
-                if(!user || isGuest) return;
+                if(!user) return;
+                if(isGuest) return showToast('게스트 모드에서는 작성/수정 권한이 없습니다.');
                 await setDoc(getDocRef('tasks', Date.now().toString()), { ...data, status: isMaster ? 'approved' : 'pending', createdAt: Date.now() });
                 showToast(isMaster ? '작업이 등록되었습니다.' : '작업 승인 요청이 전송되었습니다.');
             };
             const handleUpdateTaskToDB = async (id, data, masterFlag) => {
-                if(!user || isGuest) return;
+                if(!user) return;
+                if(isGuest) return showToast('게스트 모드에서는 작성/수정 권한이 없습니다.');
                 if(masterFlag) {
                     await updateDoc(getDocRef('tasks', id), { ...data, status: 'approved', pendingData: null });
                     showToast('작업 수정이 완료되었습니다.');
@@ -1388,42 +1412,47 @@
                     showToast('작업 수정이 요청되었습니다.');
                 }
             };
-            const handleApproveTaskUpdate = async (id, pendingData) => { if(!user || isGuest) return; await updateDoc(getDocRef('tasks', id), { ...pendingData, status: 'approved', pendingData: null }); };
-            const handleRejectTaskUpdate = async (id) => { if(!user || isGuest) return; await updateDoc(getDocRef('tasks', id), { status: 'approved', pendingData: null }); };
+            const handleApproveTaskUpdate = async (id, pendingData) => { if(!user) return; if(isGuest) return showToast('권한이 없습니다.'); await updateDoc(getDocRef('tasks', id), { ...pendingData, status: 'approved', pendingData: null }); };
+            const handleRejectTaskUpdate = async (id) => { if(!user) return; if(isGuest) return showToast('권한이 없습니다.'); await updateDoc(getDocRef('tasks', id), { status: 'approved', pendingData: null }); };
 
             const handleSaveDailyReport = async (dateStr, data) => {
-                if(!user || isGuest) return;
+                if(!user) return;
+                if(isGuest) return showToast('게스트 모드에서는 저장 권한이 없습니다.');
                 await setDoc(getDocRef('daily_reports', dateStr), { entries: data, updatedAt: Date.now() });
                 showToast(`${dateStr.slice(5)} 기준 출역일보가 보존처리 되었습니다.`);
             };
             const handleDeleteDailyReport = async (dateStr) => {
-                if(!user || isGuest) return;
+                if(!user) return;
+                if(isGuest) return showToast('권한이 없습니다.');
                 await deleteDoc(getDocRef('daily_reports', dateStr));
                 showToast('최신 데이터로 덮어쓰기 완료했습니다.');
             };
 
             const handleAddMaterial = async (data) => {
-                if(!user || isGuest) return;
+                if(!user) return;
+                if(isGuest) return showToast('게스트 권한이 없습니다.');
                 await setDoc(getDocRef('materials', Date.now().toString()), { ...data, status: isMaster ? 'approved' : 'pending', createdAt: Date.now() }); 
                 showToast(isMaster ? '일정이 등록되었습니다.' : '자재 반입 일정이 요청되었습니다.');
             };
-            const handleApproveMaterial = async (id) => { if(!user || isGuest) return; await updateDoc(getDocRef('materials', id), { status: 'approved' }); };
-            const handleDeleteMaterial = async (id) => { if(!user || isGuest || !confirm('삭제하시겠습니까?')) return; await deleteDoc(getDocRef('materials', id)); };
+            const handleApproveMaterial = async (id) => { if(!user) return; if(isGuest) return showToast('권한이 없습니다.'); await updateDoc(getDocRef('materials', id), { status: 'approved' }); };
+            const handleDeleteMaterial = async (id) => { if(!user || !confirm('삭제하시겠습니까?')) return; if(isGuest) return showToast('권한이 없습니다.'); await deleteDoc(getDocRef('materials', id)); };
 
             const handleAddChecklist = async (data) => {
-                if(!user || isGuest) return;
+                if(!user) return;
+                if(isGuest) return showToast('게스트 권한이 없습니다.');
                 try { await setDoc(getDocRef('checklists', Date.now().toString()), { ...data, isCompleted: false, createdAt: Date.now() }); } catch(e) { alert('사진 용량이 너무 큽니다.'); }
             };
-            const handleToggleChecklist = async (id, isCompleted) => { if(!user || isGuest) return; await updateDoc(getDocRef('checklists', id), { isCompleted }); };
-            const handleDeleteChecklist = async (id) => { if(!user || isGuest || !confirm('체크리스트를 삭제하시겠습니까?')) return; await deleteDoc(getDocRef('checklists', id)); };
+            const handleToggleChecklist = async (id, isCompleted) => { if(!user) return; if(isGuest) return showToast('권한이 없습니다.'); await updateDoc(getDocRef('checklists', id), { isCompleted }); };
+            const handleDeleteChecklist = async (id) => { if(!user || !confirm('체크리스트를 삭제하시겠습니까?')) return; if(isGuest) return showToast('권한이 없습니다.'); await deleteDoc(getDocRef('checklists', id)); };
 
-            const handleUpdatePasswords = async (newPasswords) => { if(!user || isGuest) return; await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'global'), { passwords: newPasswords }); showToast('비밀번호가 변경되었습니다.'); };
-            const handleAddSavedSubToDB = async (data) => { if(!user || isGuest) return; await setDoc(getDocRef('saved_subs', Date.now().toString()), { ...data, createdAt: Date.now() }); showToast('협력사가 등록되었습니다.'); };
-            const handleUpdateSavedSubToDB = async (id, data) => { if(!user || isGuest) return; await updateDoc(getDocRef('saved_subs', id), data); showToast('협력사 정보가 업데이트되었습니다.'); };
-            const handleDeleteSavedSubFromDB = async (id) => { if(!user || isGuest) return; await deleteDoc(getDocRef('saved_subs', id)); showToast('협력사가 삭제되었습니다.'); };
+            const handleUpdatePasswords = async (newPasswords) => { if(!user) return; if(isGuest) return showToast('게스트 권한이 없습니다.'); await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'global'), { passwords: newPasswords }); showToast('비밀번호가 변경되었습니다.'); };
+            const handleAddSavedSubToDB = async (data) => { if(!user) return; if(isGuest) return showToast('게스트 권한이 없습니다.'); await setDoc(getDocRef('saved_subs', Date.now().toString()), { ...data, createdAt: Date.now() }); showToast('협력사가 등록되었습니다.'); };
+            const handleUpdateSavedSubToDB = async (id, data) => { if(!user) return; if(isGuest) return showToast('게스트 권한이 없습니다.'); await updateDoc(getDocRef('saved_subs', id), data); showToast('협력사 정보가 업데이트되었습니다.'); };
+            const handleDeleteSavedSubFromDB = async (id) => { if(!user) return; if(isGuest) return showToast('권한이 없습니다.'); await deleteDoc(getDocRef('saved_subs', id)); showToast('협력사가 삭제되었습니다.'); };
 
             const handleAddRequestToDB = async (newReq, img, currentRole) => {
-                if(!user || !db || isGuest) return;
+                if(!user || !db) return;
+                if(isGuest) return showToast('게스트 권한이 없습니다.');
                 try {
                     const newId = Date.now().toString();
                     await setDoc(getDocRef('requests', newId), {
@@ -1433,7 +1462,7 @@
                     showToast('메시지가 전송되었습니다.');
                 } catch(e) { alert('사진 용량이 너무 큽니다.'); }
             };
-            const deleteRequest = async (id) => { if(!user || isGuest) return; await deleteDoc(getDocRef('requests', id)); };
+            const deleteRequest = async (id) => { if(!user) return; if(isGuest) return showToast('권한이 없습니다.'); await deleteDoc(getDocRef('requests', id)); };
 
             const todayDateString = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
 
@@ -1515,14 +1544,14 @@
                     </nav>
 
                     <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
-                        {activeTab === 'dashboard' && <DashboardTab stats={stats} realWeather={dummyWeather} tasks={tasks} requests={requests} todayDateString={todayDateString} formatMd={(d)=>`${d.getMonth()+1}월 ${d.getDate()}일`} todayDate={new Date()} tomorrowDate={new Date(new Date().setDate(new Date().getDate()+1))} setActiveTab={setActiveTab} />}
-                        {activeTab === 'attendance' && <AttendanceTab subcontractors={subcontractors} savedSubs={savedSubs} riskMapping={riskMapping} stats={stats} loginRole={loginRole} isMaster={isMaster} isGuest={isGuest} myCompany={myCompany} handleAddSubToDB={handleAddSubToDB} handleUpdateSubToDB={handleUpdateSubToDB} handleApproveSubUpdate={handleApproveSubUpdate} handleRejectSubUpdate={handleRejectSubUpdate} deleteSubcontractor={(id)=> {if(user && confirm('삭제?')) deleteDoc(getDocRef('subcontractors',id))}} handleUpdateRiskMapping={async (k,v)=>{if(isGuest)return; const nm={...riskMapping}; if(v===null) delete nm[k]; else nm[k]=v; await updateDoc(doc(db,'artifacts',appId,'public','data','settings','global'), {riskMapping:nm});}} handleClockOut={handleClockOut} todayStr={todayStr} />}
-                        {activeTab === 'dailyReport' && (isMaster || isGuest) && <DailyReportTab subcontractors={subcontractors} tasks={tasks} dailyReports={dailyReports} todayStr={todayStr} isGuest={isGuest} handleSaveDailyReport={handleSaveDailyReport} handleDeleteDailyReport={handleDeleteDailyReport} />}
-                        {activeTab === 'tasks' && <TasksTab tasks={tasks} riskMapping={riskMapping} savedSubs={savedSubs} isMaster={isMaster} isGuest={isGuest} myCompany={myCompany} todayStr={todayStr} handleAddTaskToDB={handleAddTaskToDB} handleUpdateTaskToDB={handleUpdateTaskToDB} handleApproveTaskUpdate={handleApproveTaskUpdate} handleRejectTaskUpdate={handleRejectTaskUpdate} deleteTask={(id)=>{if(confirm('삭제?')) deleteDoc(getDocRef('tasks',id))}}/>}
-                        {activeTab === 'materials' && <MaterialTab materials={materials} isMaster={isMaster} isGuest={isGuest} myCompany={myCompany} handleAddMaterial={handleAddMaterial} handleApproveMaterial={handleApproveMaterial} handleDeleteMaterial={handleDeleteMaterial}/>}
-                        {activeTab === 'requests' && <CommunicationTab requests={requests} loginRole={loginRole} canDelete={isMaster} isGuest={isGuest} handleAddRequestToDB={handleAddRequestToDB} deleteRequest={deleteRequest} />}
-                        {activeTab === 'checklists' && (isMaster || isGuest) && <ChecklistTab checklists={checklists} riskMapping={riskMapping} isGuest={isGuest} handleAddChecklist={handleAddChecklist} handleToggleChecklist={handleToggleChecklist} handleDeleteChecklist={handleDeleteChecklist}/>}
-                        {activeTab === 'settings' && (isMaster || isGuest) && <SettingsTab passwords={passwords} handleUpdatePasswords={handleUpdatePasswords} savedSubs={savedSubs} isGuest={isGuest} handleAddSavedSub={handleAddSavedSubToDB} handleUpdateSavedSub={handleUpdateSavedSubToDB} handleDeleteSavedSub={handleDeleteSavedSubFromDB} showToast={showToast} />}
+                        {activeTab === 'dashboard' && <DashboardTab stats={stats} realWeather={dummyWeather} tasks={displayTasks} requests={displayRequests} todayDateString={todayDateString} formatMd={(d)=>`${d.getMonth()+1}월 ${d.getDate()}일`} todayDate={new Date()} tomorrowDate={new Date(new Date().setDate(new Date().getDate()+1))} setActiveTab={setActiveTab} />}
+                        {activeTab === 'attendance' && <AttendanceTab subcontractors={displaySubcontractors} savedSubs={displaySavedSubs} riskMapping={riskMapping} stats={stats} loginRole={loginRole} isMaster={isMaster} isGuest={isGuest} myCompany={myCompany} handleAddSubToDB={handleAddSubToDB} handleUpdateSubToDB={handleUpdateSubToDB} handleApproveSubUpdate={handleApproveSubUpdate} handleRejectSubUpdate={handleRejectSubUpdate} deleteSubcontractor={(id)=> {if(user && confirm('삭제?')) deleteDoc(getDocRef('subcontractors',id))}} handleUpdateRiskMapping={async (k,v)=>{if(isGuest)return; const nm={...riskMapping}; if(v===null) delete nm[k]; else nm[k]=v; await updateDoc(doc(db,'artifacts',appId,'public','data','settings','global'), {riskMapping:nm});}} handleClockOut={handleClockOut} todayStr={todayStr} />}
+                        {activeTab === 'dailyReport' && (isMaster || isGuest) && <DailyReportTab subcontractors={displaySubcontractors} tasks={displayTasks} dailyReports={displayDailyReports} todayStr={todayStr} isGuest={isGuest} handleSaveDailyReport={handleSaveDailyReport} handleDeleteDailyReport={handleDeleteDailyReport} />}
+                        {activeTab === 'tasks' && <TasksTab tasks={displayTasks} riskMapping={riskMapping} savedSubs={displaySavedSubs} isMaster={isMaster} isGuest={isGuest} myCompany={myCompany} todayStr={todayStr} handleAddTaskToDB={handleAddTaskToDB} handleUpdateTaskToDB={handleUpdateTaskToDB} handleApproveTaskUpdate={handleApproveTaskUpdate} handleRejectTaskUpdate={handleRejectTaskUpdate} deleteTask={(id)=>{if(confirm('삭제?')) deleteDoc(getDocRef('tasks',id))}}/>}
+                        {activeTab === 'materials' && <MaterialTab materials={displayMaterials} isMaster={isMaster} isGuest={isGuest} myCompany={myCompany} handleAddMaterial={handleAddMaterial} handleApproveMaterial={handleApproveMaterial} handleDeleteMaterial={handleDeleteMaterial}/>}
+                        {activeTab === 'requests' && <CommunicationTab requests={displayRequests} loginRole={loginRole} canDelete={isMaster} isGuest={isGuest} handleAddRequestToDB={handleAddRequestToDB} deleteRequest={deleteRequest} />}
+                        {activeTab === 'checklists' && (isMaster || isGuest) && <ChecklistTab checklists={displayChecklists} riskMapping={riskMapping} isGuest={isGuest} handleAddChecklist={handleAddChecklist} handleToggleChecklist={handleToggleChecklist} handleDeleteChecklist={handleDeleteChecklist}/>}
+                        {activeTab === 'settings' && (isMaster || isGuest) && <SettingsTab passwords={displayPasswords} handleUpdatePasswords={handleUpdatePasswords} savedSubs={displaySavedSubs} isGuest={isGuest} handleAddSavedSub={handleAddSavedSubToDB} handleUpdateSavedSub={handleUpdateSavedSubToDB} handleDeleteSavedSub={handleDeleteSavedSubFromDB} showToast={showToast} />}
                     </main>
 
                     <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-3 flex justify-around md:hidden z-30 shadow-2xl pb-safe">
