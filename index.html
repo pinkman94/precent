@@ -209,7 +209,7 @@
         // ==========================================
         // 컴포넌트: 출역일보 (Master Only / DB 연동 + 직접 편집 가능)
         // ==========================================
-        const DailyReportTab = ({ subcontractors, tasks, dailyReports, todayStr, handleSaveDailyReport }) => {
+        const DailyReportTab = ({ subcontractors, tasks, dailyReports, todayStr, handleSaveDailyReport, handleDeleteDailyReport }) => {
             const [reportDateStr, setReportDateStr] = useState(todayStr);
             const [isEditing, setIsEditing] = useState(false);
             const [localData, setLocalData] = useState([]);
@@ -218,16 +218,22 @@
             reportYesterday.setDate(reportYesterday.getDate() - 1);
             const reportYesterdayStr = `${reportYesterday.getFullYear()}-${String(reportYesterday.getMonth() + 1).padStart(2, '0')}-${String(reportYesterday.getDate()).padStart(2, '0')}`;
 
+            const formatTs = (ts) => {
+                const d = new Date(ts);
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            };
+
             useEffect(() => {
-                if (isEditing) return; // 수정 중에는 리로드 방지
+                if (isEditing) return;
 
                 const savedReport = dailyReports.find(r => r.id === reportDateStr);
                 if (savedReport) {
                     setLocalData(savedReport.entries);
                 } else {
                     const approvedSubs = subcontractors.filter(s => s.status === 'approved');
-                    const cumulativeSubs = approvedSubs.filter(s => s.date <= reportDateStr);
-                    const approvedTasks = tasks.filter(t => t.status === 'approved' && t.date <= reportDateStr);
+                    // 과거 데이터 추출 (날짜 비교 fallback 적용)
+                    const cumulativeSubs = approvedSubs.filter(s => (s.date || formatTs(s.createdAt)) <= reportDateStr);
+                    const approvedTasks = tasks.filter(t => t.status === 'approved' && (t.date || formatTs(t.createdAt)) <= reportDateStr);
                     
                     const subKeys = cumulativeSubs.map(s => `${s.name}|${s.trade}`);
                     const taskKeys = approvedTasks.map(t => `${t.subName}|${t.trade}`);
@@ -236,11 +242,11 @@
                     const generated = uniqueKeys.map((key, kIdx) => {
                         const [name, trade] = key.split('|');
 
-                        // 다중 작업내용 완벽 병합 처리
-                        const myTasks = tasks.filter(t => t.subName === name && t.trade === trade && t.status === 'approved');
+                        // 작업내용 완벽 매핑 처리
+                        const myTasks = approvedTasks.filter(t => t.subName === name && t.trade === trade);
                         
-                        const todayTaskDocs = myTasks.filter(t => t.date === reportDateStr);
-                        const yesterdayTaskDocs = myTasks.filter(t => t.date === reportYesterdayStr);
+                        const todayTaskDocs = myTasks.filter(t => (t.date || formatTs(t.createdAt)) === reportDateStr);
+                        const yesterdayTaskDocs = myTasks.filter(t => (t.date || formatTs(t.createdAt)) === reportYesterdayStr);
 
                         const todayTaskText = todayTaskDocs.flatMap(doc => doc.details.map(d => `[${d.location}] ${d.task}`)).join('\n');
                         const yesterdayTaskText = yesterdayTaskDocs.flatMap(doc => doc.details.map(d => `[${d.location}] ${d.task}`)).join('\n');
@@ -250,8 +256,8 @@
                         const tradeMap = {};
 
                         mySubs.forEach(subDoc => {
-                            const isToday = subDoc.date === reportDateStr;
-                            const isYesterday = subDoc.date === reportYesterdayStr;
+                            const isToday = (subDoc.date || formatTs(subDoc.createdAt)) === reportDateStr;
+                            const isYesterday = (subDoc.date || formatTs(subDoc.createdAt)) === reportYesterdayStr;
                             const totalDocWorkers = (subDoc.early||0) + (subDoc.day||0) + (subDoc.night||0);
                             
                             if (subDoc.workers && subDoc.workers.length > 0) {
@@ -308,6 +314,12 @@
             const addEntry = () => { setLocalData([...localData, { id: `entry_new_${Date.now()}`, subName: '', trade: '', yesterdayTask: '', todayTask: '', detailTrades: [{ id: `dt_new_${Date.now()}_1`, name: '', yesterday: 0, today: 0, cumulative: 0 }] }]); };
 
             const onSave = () => { handleSaveDailyReport(reportDateStr, localData); setIsEditing(false); };
+            
+            const syncFromDB = () => {
+                if(confirm('직접 수정한 내용을 버리고 가장 최신 출역/작업 데이터를 다시 불러올까요?')) {
+                    handleDeleteDailyReport(reportDateStr);
+                }
+            };
 
             return (
                 <div className="space-y-6 animate-fade-in">
@@ -328,9 +340,16 @@
 
                     <div className="bg-white rounded-2xl shadow border border-slate-100 overflow-hidden">
                         <div className="p-4 md:p-6 bg-slate-800 text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                            <h3 className="font-bold text-lg flex items-center gap-2">
+                            <h3 className="font-bold text-lg flex items-center flex-wrap gap-2">
                                 <i className="fa-solid fa-file-lines text-blue-400"></i> 현장 출역일보 종합 
-                                {dailyReports.some(r => r.id === reportDateStr) && <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 px-2 py-0.5 rounded ml-2">DB 저장됨</span>}
+                                {dailyReports.some(r => r.id === reportDateStr) && (
+                                    <>
+                                        <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 px-2 py-0.5 rounded ml-2">수동저장됨 (프리즈 상태)</span>
+                                        <button onClick={syncFromDB} className="text-[10px] bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded shadow transition flex items-center gap-1">
+                                            <i className="fa-solid fa-rotate"></i> 최신 DB 연동(새로고침)
+                                        </button>
+                                    </>
+                                )}
                             </h3>
                             <div className="flex items-center gap-3">
                                 <div className="flex items-center gap-2 bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-600">
@@ -481,6 +500,11 @@
                 night: newSub.workers.filter(w => w.shift === '야간').length
             };
 
+            const formatTs = (ts) => {
+                const d = new Date(ts);
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            };
+
             const onSubmit = (e) => {
                 e.preventDefault();
                 if (!newSub.name || !newSub.manager) return alert('협력사 정보를 완성해 주세요.');
@@ -490,12 +514,11 @@
 
             const isAllClockedOut = (sub) => (sub.early === 0 || sub.clockedOut?.early) && (sub.day === 0 || sub.clockedOut?.day) && (sub.night === 0 || sub.clockedOut?.night) && ((sub.early||0) + (sub.day||0) + (sub.night||0) > 0);
 
-            // 선택한 날짜 데이터 필터링
-            const todaysSubs = subcontractors.filter(sub => sub.date === selectedBoardDate);
+            const todaysSubs = subcontractors.filter(sub => (sub.date || formatTs(sub.createdAt)) === selectedBoardDate);
 
             const getCumulative = (subName) => {
                 return subcontractors
-                    .filter(s => s.name === subName && s.status === 'approved' && s.date <= selectedBoardDate)
+                    .filter(s => s.name === subName && s.status === 'approved' && (s.date || formatTs(s.createdAt)) <= selectedBoardDate)
                     .reduce((sum, s) => sum + (s.early||0) + (s.day||0) + (s.night||0), 0);
             };
 
@@ -576,7 +599,6 @@
                         </form>
                     </div>
 
-                    {/* 출역 보드 */}
                     <div className="bg-white rounded-2xl shadow border border-slate-100 overflow-hidden">
                         <div className="p-4 md:p-6 bg-slate-50/50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                             <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2">
@@ -616,7 +638,6 @@
                                                     <div className="text-blue-600 text-xs mt-0.5">{sub.trade}</div>
                                                     {isPending && <span className="inline-block mt-1 bg-amber-100 text-amber-700 text-[10px] px-2 py-0.5 rounded font-bold">수정 승인 대기중</span>}
                                                 </td>
-                                                {/* 인원 렌더링 */}
                                                 {['early', 'day', 'night'].map(shift => (
                                                     <td key={shift} className="p-3 border-r border-slate-100 text-center">
                                                         {isEditing ? (
@@ -719,6 +740,11 @@
             const [newTask, setNewTask] = useState({ date: todayStr, subName: isMaster ? '' : myCompany, trade: defaultTrade, equip: '', details: [{ ...defaultDetail }] });
             const [editState, setEditState] = useState(null);
 
+            const formatTs = (ts) => {
+                const d = new Date(ts);
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            };
+
             const handleDetailChange = (i, f, v, isEdit=false) => { 
                 if(isEdit) {
                     const nd = [...editState.details]; nd[i][f] = v; setEditState({...editState, details: nd});
@@ -735,7 +761,7 @@
                 setNewTask({ date: selectedBoardDate, subName: isMaster ? '' : myCompany, trade: defaultTrade, equip: '', details: [{ ...defaultDetail }] });
             };
 
-            const todaysTasks = tasks.filter(t => t.date === selectedBoardDate);
+            const todaysTasks = tasks.filter(t => (t.date || formatTs(t.createdAt)) === selectedBoardDate);
 
             return (
                 <div className="space-y-6 animate-fade-in">
@@ -1205,9 +1231,14 @@
 
             const isMaster = loginRole.includes('Master');
 
+            const formatTs = (ts) => {
+                const d = new Date(ts);
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            };
+
             const stats = useMemo(() => {
                 let totalAssigned=0, currentWorking=0, totalElderly=0, totalNew=0, totalForeigner=0, totalFemale=0;
-                const todaysSubs = subcontractors.filter(sub => sub.date === todayStr);
+                const todaysSubs = subcontractors.filter(sub => (sub.date || formatTs(sub.createdAt)) === todayStr);
                 
                 todaysSubs.forEach(sub => {
                     const assigned = (sub.early||0) + (sub.day||0) + (sub.night||0);
@@ -1286,6 +1317,7 @@
 
             const handleAddSubToDB = async (data) => {
                 if(!user) return;
+                // data 내부에 사용자가 선택한 date가 들어있으므로 todayStr로 덮어쓰지 않고 살립니다.
                 await setDoc(getDocRef('subcontractors', Date.now().toString()), { ...data, status: isMaster ? 'approved' : 'pending', clockedOut: {}, createdAt: Date.now() });
                 showToast(isMaster ? '출역이 등록되었습니다.' : '출역 승인 요청이 전송되었습니다.');
             };
@@ -1325,6 +1357,11 @@
                 if(!user) return;
                 await setDoc(getDocRef('daily_reports', dateStr), { entries: data, updatedAt: Date.now() });
                 showToast(`${dateStr.slice(5)} 기준 출역일보가 저장되었습니다.`);
+            };
+            const handleDeleteDailyReport = async (dateStr) => {
+                if(!user) return;
+                await deleteDoc(getDocRef('daily_reports', dateStr));
+                showToast('최신 DB 정보로 덮어쓰기 완료했습니다.');
             };
 
             const handleAddMaterial = async (data) => {
@@ -1435,7 +1472,7 @@
                     <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
                         {activeTab === 'dashboard' && <DashboardTab stats={stats} realWeather={dummyWeather} tasks={tasks} requests={requests} todayDateString={todayDateString} formatMd={(d)=>`${d.getMonth()+1}월 ${d.getDate()}일`} todayDate={new Date()} tomorrowDate={new Date(new Date().setDate(new Date().getDate()+1))} setActiveTab={setActiveTab} />}
                         {activeTab === 'attendance' && <AttendanceTab subcontractors={subcontractors} savedSubs={savedSubs} riskMapping={riskMapping} stats={stats} loginRole={loginRole} isMaster={isMaster} myCompany={myCompany} handleAddSubToDB={handleAddSubToDB} handleUpdateSubToDB={handleUpdateSubToDB} handleApproveSubUpdate={handleApproveSubUpdate} handleRejectSubUpdate={handleRejectSubUpdate} deleteSubcontractor={(id)=> {if(user && confirm('삭제?')) deleteDoc(getDocRef('subcontractors',id))}} handleUpdateRiskMapping={async (k,v)=>{const nm={...riskMapping}; if(v===null) delete nm[k]; else nm[k]=v; await updateDoc(doc(db,'artifacts',appId,'public','data','settings','global'), {riskMapping:nm});}} handleClockOut={handleClockOut} todayStr={todayStr} />}
-                        {activeTab === 'dailyReport' && isMaster && <DailyReportTab subcontractors={subcontractors} tasks={tasks} dailyReports={dailyReports} todayStr={todayStr} handleSaveDailyReport={handleSaveDailyReport} />}
+                        {activeTab === 'dailyReport' && isMaster && <DailyReportTab subcontractors={subcontractors} tasks={tasks} dailyReports={dailyReports} todayStr={todayStr} handleSaveDailyReport={handleSaveDailyReport} handleDeleteDailyReport={handleDeleteDailyReport} />}
                         {activeTab === 'tasks' && <TasksTab tasks={tasks} riskMapping={riskMapping} savedSubs={savedSubs} isMaster={isMaster} myCompany={myCompany} todayStr={todayStr} handleAddTaskToDB={handleAddTaskToDB} handleUpdateTaskToDB={handleUpdateTaskToDB} handleApproveTaskUpdate={handleApproveTaskUpdate} handleRejectTaskUpdate={handleRejectTaskUpdate} deleteTask={(id)=>{if(confirm('삭제?')) deleteDoc(getDocRef('tasks',id))}}/>}
                         {activeTab === 'materials' && <MaterialTab materials={materials} isMaster={isMaster} myCompany={myCompany} handleAddMaterial={handleAddMaterial} handleApproveMaterial={handleApproveMaterial} handleDeleteMaterial={handleDeleteMaterial}/>}
                         {activeTab === 'requests' && <CommunicationTab requests={requests} loginRole={loginRole} canDelete={isMaster} handleAddRequestToDB={handleAddRequestToDB} deleteRequest={deleteRequest} />}
