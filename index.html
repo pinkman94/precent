@@ -27,13 +27,6 @@
         .animate-fade-in { animation: fadeIn 0.4s ease-out forwards; }
         @keyframes fadeInDown { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
         .animate-fade-in-down { animation: fadeInDown 0.3s ease-out forwards; }
-        @keyframes blob {
-            0% { transform: translate(0px, 0px) scale(1); }
-            33% { transform: translate(30px, -50px) scale(1.1); }
-            66% { transform: translate(-20px, 20px) scale(0.9); }
-            100% { transform: translate(0px, 0px) scale(1); }
-        }
-        .animate-blob { animation: blob 7s infinite; }
     </style>
 </head>
 <body class="bg-slate-50">
@@ -217,26 +210,217 @@
         };
 
         // ==========================================
+        // 컴포넌트: 출역일보 (Master Only)
+        // ==========================================
+        const DailyReportTab = ({ subcontractors, tasks, todayStr, yesterdayStr }) => {
+            const formatTs = (ts) => {
+                const d = new Date(ts);
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            };
+
+            const approvedSubs = subcontractors.filter(s => s.status === 'approved');
+            
+            // 전체 현장 누계 및 통계
+            const totalCumulative = approvedSubs.reduce((sum, s) => sum + (s.early||0) + (s.day||0) + (s.night||0), 0);
+            const totalToday = approvedSubs.filter(s => s.date === todayStr).reduce((sum, s) => sum + (s.early||0) + (s.day||0) + (s.night||0), 0);
+            const totalYesterday = approvedSubs.filter(s => s.date === yesterdayStr).reduce((sum, s) => sum + (s.early||0) + (s.day||0) + (s.night||0), 0);
+
+            // 업체별 리포트 데이터
+            const subNames = [...new Set(approvedSubs.map(s => s.name))];
+            
+            const reportData = subNames.map(name => {
+                const mySubs = approvedSubs.filter(s => s.name === name);
+                const myTasks = tasks.filter(t => t.subName === name && t.status === 'approved');
+
+                const todayTaskDoc = myTasks.find(t => formatTs(t.createdAt) === todayStr);
+                const yesterdayTaskDoc = myTasks.find(t => formatTs(t.createdAt) === yesterdayStr);
+
+                const todayTaskText = todayTaskDoc && todayTaskDoc.details ? todayTaskDoc.details.map(d => d.task).join(', ') : '-';
+                const yesterdayTaskText = yesterdayTaskDoc && yesterdayTaskDoc.details ? yesterdayTaskDoc.details.map(d => d.task).join(', ') : '-';
+
+                const tradeMap = {};
+                mySubs.forEach(subDoc => {
+                    const isToday = subDoc.date === todayStr;
+                    const isYesterday = subDoc.date === yesterdayStr;
+                    const totalDocWorkers = (subDoc.early||0) + (subDoc.day||0) + (subDoc.night||0);
+                    
+                    if (subDoc.workers && subDoc.workers.length > 0) {
+                        subDoc.workers.forEach(w => {
+                            const tName = w.detailTrade || '미입력';
+                            if (!tradeMap[tName]) tradeMap[tName] = { yesterday: 0, today: 0, cumulative: 0 };
+                            tradeMap[tName].cumulative += 1;
+                            if (isToday) tradeMap[tName].today += 1;
+                            if (isYesterday) tradeMap[tName].yesterday += 1;
+                        });
+                        
+                        // 명단 입력 누락된 인원이 있을 경우 메인 공종으로 계산
+                        const unaccounted = totalDocWorkers - subDoc.workers.length;
+                        if (unaccounted > 0) {
+                            const mainTrade = subDoc.trade || '기본공종';
+                            if (!tradeMap[mainTrade]) tradeMap[mainTrade] = { yesterday: 0, today: 0, cumulative: 0 };
+                            tradeMap[mainTrade].cumulative += unaccounted;
+                            if (isToday) tradeMap[mainTrade].today += unaccounted;
+                            if (isYesterday) tradeMap[mainTrade].yesterday += unaccounted;
+                        }
+                    } else {
+                        // 명단이 아예 없으면 숫자로만 메인 공종 계산
+                        const mainTrade = subDoc.trade || '기본공종';
+                        if (!tradeMap[mainTrade]) tradeMap[mainTrade] = { yesterday: 0, today: 0, cumulative: 0 };
+                        tradeMap[mainTrade].cumulative += totalDocWorkers;
+                        if (isToday) tradeMap[mainTrade].today += totalDocWorkers;
+                        if (isYesterday) tradeMap[mainTrade].yesterday += totalDocWorkers;
+                    }
+                });
+
+                let tradesArray = Object.keys(tradeMap).map(k => ({ name: k, ...tradeMap[k] }));
+                if (tradesArray.length === 0) {
+                    tradesArray = [{ name: '-', yesterday: 0, today: 0, cumulative: 0 }];
+                }
+
+                return {
+                    name,
+                    yesterdayTaskText,
+                    todayTaskText,
+                    trades: tradesArray
+                };
+            });
+
+            // 금일 데이터가 있거나 과거 데이터가 있는 업체만 표시할지 판단. (여기선 모든 내역이 있는 업체 표시)
+            
+            return (
+                <div className="space-y-6 animate-fade-in">
+                    {/* 상단 요약 카드 */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="bg-white rounded-2xl shadow p-6 border border-slate-100 flex items-center justify-between">
+                            <div>
+                                <p className="text-sm font-bold text-slate-500 mb-1">전일 전체 출역 ({yesterdayStr.slice(5)})</p>
+                                <p className="text-3xl font-black text-slate-700">{totalYesterday}명</p>
+                            </div>
+                            <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 text-xl"><i className="fa-solid fa-users"></i></div>
+                        </div>
+                        <div className="bg-blue-600 rounded-2xl shadow-lg p-6 border border-blue-500 flex items-center justify-between text-white">
+                            <div>
+                                <p className="text-sm font-bold text-blue-200 mb-1">금일 전체 출역 ({todayStr.slice(5)})</p>
+                                <p className="text-3xl font-black">{totalToday}명</p>
+                            </div>
+                            <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center text-white text-xl"><i className="fa-solid fa-users"></i></div>
+                        </div>
+                        <div className="bg-white rounded-2xl shadow p-6 border border-slate-100 flex items-center justify-between">
+                            <div>
+                                <p className="text-sm font-bold text-slate-500 mb-1">현장 총 누계 (공사시작~)</p>
+                                <p className="text-3xl font-black text-slate-800">{totalCumulative}명</p>
+                            </div>
+                            <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 text-xl"><i className="fa-solid fa-chart-line"></i></div>
+                        </div>
+                    </div>
+
+                    {/* 출역일보 테이블 */}
+                    <div className="bg-white rounded-2xl shadow border border-slate-100 overflow-hidden">
+                        <div className="p-6 bg-slate-800 text-white flex justify-between items-center">
+                            <h3 className="font-bold text-lg flex items-center gap-2"><i className="fa-solid fa-file-lines text-blue-400"></i> 현장 출역일보 종합</h3>
+                            <button className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded font-bold transition" onClick={() => window.print()}><i className="fa-solid fa-print mr-1"></i> 출력</button>
+                        </div>
+                        <div className="overflow-x-auto print:overflow-visible">
+                            <table className="w-full text-sm text-center border-collapse">
+                                <thead className="bg-slate-100 text-slate-700 text-xs font-bold border-b-2 border-slate-300">
+                                    <tr>
+                                        <th rowSpan="2" className="p-3 border-r border-slate-300 w-28">업체명</th>
+                                        <th colSpan="2" className="p-2 border-r border-slate-300 bg-slate-200/50">작업내용</th>
+                                        <th colSpan="4" className="p-2">출역인원 (명)</th>
+                                    </tr>
+                                    <tr>
+                                        <th className="p-2 border-r border-t border-slate-300 w-1/4">전일 ({yesterdayStr.slice(5)})</th>
+                                        <th className="p-2 border-r border-t border-slate-300 w-1/4 text-blue-700">금일 ({todayStr.slice(5)})</th>
+                                        <th className="p-2 border-r border-t border-slate-300 w-24 bg-slate-50">세부공종</th>
+                                        <th className="p-2 border-r border-t border-slate-300 w-16 bg-slate-50">전일</th>
+                                        <th className="p-2 border-r border-t border-slate-300 w-16 bg-blue-50 text-blue-700">금일</th>
+                                        <th className="p-2 border-t border-slate-300 w-20 bg-slate-50">누계</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-200">
+                                    {reportData.map((data, idx) => (
+                                        data.trades.map((trade, tIdx) => (
+                                            <tr key={`${idx}-${tIdx}`} className="hover:bg-blue-50/30 transition">
+                                                {tIdx === 0 && (
+                                                    <>
+                                                        <td rowSpan={data.trades.length} className="p-3 border-r border-slate-200 font-black text-slate-800 bg-slate-50 align-middle">{data.name}</td>
+                                                        <td rowSpan={data.trades.length} className="p-3 border-r border-slate-200 text-left align-top"><div className="text-xs text-slate-600 max-h-24 overflow-y-auto pr-1">{data.yesterdayTaskText}</div></td>
+                                                        <td rowSpan={data.trades.length} className="p-3 border-r border-slate-200 text-left align-top"><div className="text-xs text-slate-800 font-bold max-h-24 overflow-y-auto pr-1">{data.todayTaskText}</div></td>
+                                                    </>
+                                                )}
+                                                <td className="p-2 border-r border-slate-200 text-[11px] font-bold text-slate-600">{trade.name}</td>
+                                                <td className="p-2 border-r border-slate-200 text-slate-500">{trade.yesterday > 0 ? trade.yesterday : '-'}</td>
+                                                <td className="p-2 border-r border-slate-200 font-bold text-blue-600 bg-blue-50/30">{trade.today > 0 ? trade.today : '-'}</td>
+                                                <td className="p-2 font-black text-slate-700 bg-slate-50/50">{trade.cumulative}</td>
+                                            </tr>
+                                        ))
+                                    ))}
+                                    {reportData.length === 0 && (
+                                        <tr><td colSpan="7" className="p-10 text-slate-400">조회 가능한 데이터가 없습니다.</td></tr>
+                                    )}
+                                </tbody>
+                                <tfoot className="bg-slate-800 text-white font-bold">
+                                    <tr>
+                                        <td colSpan="4" className="p-3 border-r border-slate-700 text-right">현장 전체 총 계</td>
+                                        <td className="p-3 border-r border-slate-700 text-center">{totalYesterday}</td>
+                                        <td className="p-3 border-r border-slate-700 text-center text-blue-300">{totalToday}</td>
+                                        <td className="p-3 text-center text-lg">{totalCumulative}</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+
+        // ==========================================
         // 컴포넌트: 출역 관리
         // ==========================================
-        const AttendanceTab = ({ subcontractors, savedSubs, riskMapping, stats, loginRole, myCompany, isMaster, handleAddSubToDB, handleUpdateSubToDB, handleApproveSubUpdate, handleRejectSubUpdate, deleteSubcontractor, handleUpdateRiskMapping, handleClockOut }) => {
+        const AttendanceTab = ({ subcontractors, savedSubs, riskMapping, stats, loginRole, myCompany, isMaster, handleAddSubToDB, handleUpdateSubToDB, handleApproveSubUpdate, handleRejectSubUpdate, deleteSubcontractor, handleUpdateRiskMapping, handleClockOut, todayStr }) => {
             const defaultTrade = Object.keys(riskMapping)[0] || '';
-            const [newSub, setNewSub] = useState({ name: isMaster ? '' : myCompany, trade: defaultTrade, manager: '', phone: '', early: 0, day: 0, night: 0, elderly: 0, new: 0, foreigner: 0, female: 0 });
+            const [newSub, setNewSub] = useState({ name: isMaster ? '' : myCompany, trade: defaultTrade, manager: '', phone: '', early: 0, day: 0, night: 0, elderly: 0, new: 0, foreigner: 0, female: 0, workers: [] });
             const [editState, setEditState] = useState(null); // id: data
+            const [selectedSubForWorkers, setSelectedSubForWorkers] = useState(null); // 근로자 명단 보기 모달
 
             const handleSubChange = (e) => {
                 const selected = savedSubs.find(s => s.name === e.target.value);
                 setNewSub(prev => ({ ...prev, name: e.target.value, manager: selected?.manager || '', phone: selected?.phone || '' }));
             };
             
+            const addWorker = () => setNewSub({...newSub, workers: [...newSub.workers, { name: '', shift: '주간', detailTrade: '' }]});
+            const removeWorker = (idx) => setNewSub({...newSub, workers: newSub.workers.filter((_, i) => i !== idx)});
+            const handleWorkerChange = (idx, field, val) => {
+                const nw = [...newSub.workers];
+                nw[idx][field] = val;
+                setNewSub({...newSub, workers: nw});
+            };
+
+            const workerCounts = {
+                early: newSub.workers.filter(w => w.shift === '조출').length,
+                day: newSub.workers.filter(w => w.shift === '주간').length,
+                night: newSub.workers.filter(w => w.shift === '야간').length
+            };
+
             const onSubmit = (e) => {
                 e.preventDefault();
                 if (!newSub.name || !newSub.manager) return alert('협력사 정보를 완성해 주세요.');
                 handleAddSubToDB(newSub);
-                setNewSub({ ...newSub, early:0, day:0, night:0, elderly:0, new:0, foreigner:0, female:0 });
+                setNewSub({ ...newSub, early:0, day:0, night:0, elderly:0, new:0, foreigner:0, female:0, workers: [] });
             };
 
             const isAllClockedOut = (sub) => (sub.early === 0 || sub.clockedOut?.early) && (sub.day === 0 || sub.clockedOut?.day) && (sub.night === 0 || sub.clockedOut?.night) && ((sub.early||0) + (sub.day||0) + (sub.night||0) > 0);
+
+            // 금일 데이터 필터링
+            const todaysSubs = subcontractors.filter(sub => sub.date === todayStr);
+
+            // 누계 계산 함수
+            const getCumulative = (subName) => {
+                return subcontractors
+                    .filter(s => s.name === subName && s.status === 'approved')
+                    .reduce((sum, s) => sum + (s.early||0) + (s.day||0) + (s.night||0), 0);
+            };
 
             return (
                 <div className="space-y-6 animate-fade-in">
@@ -268,6 +452,7 @@
                                 <div className="space-y-2"><label className="text-xs font-bold text-slate-600">소장/관리자</label><input type="text" className="w-full p-3 border border-slate-200 rounded-xl text-sm bg-slate-50 font-medium" value={newSub.manager} onChange={e => setNewSub({...newSub, manager: e.target.value})} required/></div>
                                 <div className="space-y-2"><label className="text-xs font-bold text-slate-600">연락처</label><input type="text" className="w-full p-3 border border-slate-200 rounded-xl text-sm bg-slate-50 font-medium" value={newSub.phone} onChange={e => setNewSub({...newSub, phone: e.target.value})}/></div>
                             </div>
+
                             <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 grid grid-cols-2 md:grid-cols-7 gap-5">
                                 <div className="space-y-2"><label className="block text-xs font-extrabold text-center text-blue-700">조출</label><input type="number" min="0" className="w-full text-center p-3 border rounded-xl" value={newSub.early} onChange={e => setNewSub({...newSub, early: Number(e.target.value)})}/></div>
                                 <div className="space-y-2"><label className="block text-xs font-extrabold text-center text-blue-700">주간</label><input type="number" min="0" className="w-full text-center p-3 border rounded-xl" value={newSub.day} onChange={e => setNewSub({...newSub, day: Number(e.target.value)})}/></div>
@@ -280,6 +465,34 @@
                                     <div className="mt-1"><label className="block text-[11px] font-bold text-center text-purple-600">여성</label><input type="number" min="0" className="w-full text-center p-2 border rounded-lg text-sm bg-slate-50" value={newSub.female} onChange={e => setNewSub({...newSub, female: Number(e.target.value)})}/></div>
                                 </div>
                             </div>
+
+                            {/* 세부 인원 명단 등록 */}
+                            <div className="bg-white p-5 rounded-2xl border border-slate-200">
+                                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-2">
+                                    <h3 className="text-sm font-bold text-slate-700"><i className="fa-solid fa-clipboard-user text-blue-500 mr-1"></i> 세부 출역 인원 명단 (옵션)</h3>
+                                    <div className="flex gap-3 text-[11px] font-bold bg-slate-50 px-3 py-1.5 rounded-lg border">
+                                        <span className={workerCounts.early === newSub.early ? 'text-emerald-600' : 'text-rose-500'}>조출 일치여부: {workerCounts.early}/{newSub.early}</span>
+                                        <span className="text-slate-300">|</span>
+                                        <span className={workerCounts.day === newSub.day ? 'text-emerald-600' : 'text-rose-500'}>주간 일치여부: {workerCounts.day}/{newSub.day}</span>
+                                        <span className="text-slate-300">|</span>
+                                        <span className={workerCounts.night === newSub.night ? 'text-emerald-600' : 'text-rose-500'}>야간 일치여부: {workerCounts.night}/{newSub.night}</span>
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    {newSub.workers.map((w, idx) => (
+                                        <div key={idx} className="flex gap-2 text-sm items-center">
+                                            <select className="p-2 border rounded-lg bg-slate-50 outline-none focus:bg-white" value={w.shift} onChange={(e) => handleWorkerChange(idx, 'shift', e.target.value)}>
+                                                <option>조출</option><option>주간</option><option>야간</option>
+                                            </select>
+                                            <input className="flex-1 p-2 border rounded-lg bg-slate-50 outline-none focus:bg-white" placeholder="이름 (예: 홍길동)" value={w.name} onChange={(e) => handleWorkerChange(idx, 'name', e.target.value)}/>
+                                            <input className="flex-1 p-2 border rounded-lg bg-slate-50 outline-none focus:bg-white" placeholder="세부공종 (예: 형틀목수)" value={w.detailTrade} onChange={(e) => handleWorkerChange(idx, 'detailTrade', e.target.value)}/>
+                                            <button type="button" onClick={() => removeWorker(idx)} className="text-rose-400 hover:text-rose-600 px-2"><i className="fa-solid fa-xmark"></i></button>
+                                        </div>
+                                    ))}
+                                    <button type="button" onClick={addWorker} className="w-full bg-slate-50 border border-dashed border-blue-300 text-blue-600 font-bold py-2.5 rounded-xl text-xs hover:bg-blue-50 transition mt-2"><i className="fa-solid fa-plus mr-1"></i> 인원 명단 추가</button>
+                                </div>
+                            </div>
+
                             <div className="flex justify-end"><button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-xl font-bold shadow-lg transition"><i className="fa-solid fa-check mr-2"></i>{isMaster ? '출역 등록' : '출역 등록 요청'}</button></div>
                         </form>
                     </div>
@@ -287,7 +500,7 @@
                     {/* 출역 보드 */}
                     <div className="bg-white rounded-2xl shadow border border-slate-100 overflow-hidden">
                         <div className="p-6 bg-slate-50/50 flex justify-between items-center">
-                            <h3 className="font-bold text-slate-800 text-lg">금일 현장 출역 현황 보드</h3>
+                            <h3 className="font-bold text-slate-800 text-lg">금일 현장 출역 현황 보드 <span className="text-xs text-slate-400 ml-2 font-normal">({todayStr})</span></h3>
                             <div className="flex gap-4 text-sm bg-white p-2 px-4 rounded-lg shadow-sm border border-slate-200">
                                 <div>총 투입 <span className="font-bold text-blue-600 ml-1">{stats.totalAssigned}명</span></div>
                                 <div className="w-px bg-slate-200"></div>
@@ -299,23 +512,28 @@
                                 <thead className="bg-slate-800 text-slate-200 font-medium text-xs">
                                     <tr>
                                         <th className="p-4 border-r border-slate-700">협력사 및 공종</th>
-                                        <th className="p-4 border-r border-slate-700 text-center w-20">조출</th>
-                                        <th className="p-4 border-r border-slate-700 text-center w-20">주간</th>
-                                        <th className="p-4 border-r border-slate-700 text-center w-20">야간</th>
-                                        <th className="p-4 border-r border-slate-700 text-center w-32">취약 (고/신/외/여)</th>
-                                        <th className="p-4 text-center w-28">관리</th>
+                                        <th className="p-4 border-r border-slate-700 text-center w-16">조출</th>
+                                        <th className="p-4 border-r border-slate-700 text-center w-16">주간</th>
+                                        <th className="p-4 border-r border-slate-700 text-center w-16">야간</th>
+                                        <th className="p-4 border-r border-slate-700 text-center w-24">총 누계</th>
+                                        <th className="p-4 border-r border-slate-700 text-center w-28">취약 (고/신/외/여)</th>
+                                        <th className="p-4 text-center w-24">관리</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
-                                    {subcontractors.length === 0 ? <tr><td colSpan="6" className="p-10 text-center text-slate-400">데이터가 없습니다.</td></tr> : subcontractors.map(sub => {
+                                    {todaysSubs.length === 0 ? <tr><td colSpan="7" className="p-10 text-center text-slate-400">금일 등록된 데이터가 없습니다.</td></tr> : todaysSubs.map(sub => {
                                         const isEditing = editState?.id === sub.id;
                                         const canEdit = isMaster || sub.name === myCompany;
                                         const isPending = sub.status === 'pending_update';
+                                        const cum = getCumulative(sub.name);
 
                                         return (
                                             <tr key={sub.id} className={`${isAllClockedOut(sub) ? 'opacity-50 bg-slate-50' : 'hover:bg-blue-50/30'}`}>
                                                 <td className="p-4 border-r border-slate-100">
-                                                    <div className="font-bold text-slate-800">{sub.name} <span className="text-blue-600 ml-2 text-xs">{sub.trade}</span></div>
+                                                    <div className="font-bold text-slate-800 cursor-pointer hover:text-blue-600 transition inline-block" onClick={() => setSelectedSubForWorkers(sub)}>
+                                                        {sub.name} <i className="fa-solid fa-magnifying-glass text-[10px] text-slate-400 ml-1"></i>
+                                                    </div>
+                                                    <div className="text-blue-600 text-xs mt-0.5">{sub.trade}</div>
                                                     {isPending && <span className="inline-block mt-1 bg-amber-100 text-amber-700 text-[10px] px-2 py-0.5 rounded font-bold">수정 승인 대기중</span>}
                                                 </td>
                                                 {/* 인원 렌더링 */}
@@ -336,6 +554,10 @@
                                                         )}
                                                     </td>
                                                 ))}
+                                                {/* 누계 */}
+                                                <td className="p-3 border-r border-slate-100 text-center">
+                                                    <div className="font-black text-blue-600 text-base">{cum}명</div>
+                                                </td>
                                                 {/* 취약계층 */}
                                                 <td className="p-3 border-r border-slate-100 text-center">
                                                     {isEditing ? (
@@ -377,6 +599,38 @@
                             </table>
                         </div>
                     </div>
+
+                    {/* 세부 인원 명단 확인 모달 */}
+                    {selectedSubForWorkers && (
+                        <div className="fixed inset-0 z-50 bg-black/60 flex justify-center items-center p-4">
+                            <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-2xl animate-fade-in-down max-h-[80vh] flex flex-col">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h3 className="text-lg font-bold text-slate-800">{selectedSubForWorkers.name} 세부 명단</h3>
+                                    <button onClick={() => setSelectedSubForWorkers(null)} className="text-slate-400 hover:text-rose-500 text-xl"><i className="fa-solid fa-xmark"></i></button>
+                                </div>
+                                <div className="overflow-y-auto flex-1 border rounded-xl bg-slate-50">
+                                    {(!selectedSubForWorkers.workers || selectedSubForWorkers.workers.length === 0) ? (
+                                        <div className="p-6 text-center text-slate-400 text-sm font-medium">등록된 세부 명단이 없습니다.</div>
+                                    ) : (
+                                        <ul className="divide-y divide-slate-200">
+                                            {selectedSubForWorkers.workers.map((w, idx) => (
+                                                <li key={idx} className="p-4 flex items-center justify-between bg-white hover:bg-blue-50/50 transition">
+                                                    <div className="flex items-center gap-3">
+                                                        <span className={`text-[10px] font-black px-2 py-1 rounded text-white ${w.shift==='조출'?'bg-rose-500':w.shift==='주간'?'bg-blue-500':'bg-slate-800'}`}>{w.shift}</span>
+                                                        <span className="font-bold text-slate-800">{w.name || '이름없음'}</span>
+                                                    </div>
+                                                    <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded border">{w.detailTrade || '공종 미입력'}</span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
+                                </div>
+                                <div className="mt-4 flex justify-end">
+                                    <button onClick={() => setSelectedSubForWorkers(null)} className="bg-slate-800 text-white px-6 py-2.5 rounded-xl font-bold shadow">닫기</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
         };
@@ -839,6 +1093,21 @@
             };
             const INITIAL_PASSWORDS = { '원청 관리자 (Master)': 'admin1234', '감리단 / 발주처': 'sup1234' };
 
+            // 오늘 날짜 구하기 (YYYY-MM-DD 형식)
+            const getTodayStr = () => {
+                const d = new Date();
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            };
+            const todayStr = getTodayStr();
+
+            // 전일 날짜 구하기 (YYYY-MM-DD 형식)
+            const getYesterdayStr = () => {
+                const d = new Date();
+                d.setDate(d.getDate() - 1);
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            };
+            const yesterdayStr = getYesterdayStr();
+
             const [user, setUser] = useState(null);
             const [isEntered, setIsEntered] = useState(false);
             const [loginRole, setLoginRole] = useState('원청 관리자 (Master)');
@@ -861,7 +1130,10 @@
 
             const stats = useMemo(() => {
                 let totalAssigned=0, currentWorking=0, totalElderly=0, totalNew=0, totalForeigner=0, totalFemale=0;
-                subcontractors.forEach(sub => {
+                // 금일 데이터만 통계에 반영 (과거 누적 분리)
+                const todaysSubs = subcontractors.filter(sub => sub.date === todayStr);
+                
+                todaysSubs.forEach(sub => {
                     const assigned = (sub.early||0) + (sub.day||0) + (sub.night||0);
                     totalAssigned += assigned;
                     let working = 0;
@@ -872,7 +1144,7 @@
                     totalElderly += (sub.elderly||0); totalNew += (sub.new||0); totalForeigner += (sub.foreigner||0); totalFemale += (sub.female||0);
                 });
                 return { totalAssigned, currentWorking, totalElderly, totalNew, totalForeigner, totalFemale };
-            }, [subcontractors]);
+            }, [subcontractors, todayStr]);
 
             const dummyWeather = {
                 today: { icon: <i className="fa-solid fa-sun text-rose-500 text-3xl"></i>, desc: '맑음', temp: '22℃' },
@@ -940,7 +1212,7 @@
             // 출역 API
             const handleAddSubToDB = async (data) => {
                 if(!user) return;
-                await setDoc(getDocRef('subcontractors', Date.now().toString()), { ...data, status: isMaster ? 'approved' : 'pending', clockedOut: {}, createdAt: Date.now() });
+                await setDoc(getDocRef('subcontractors', Date.now().toString()), { ...data, date: todayStr, status: isMaster ? 'approved' : 'pending', clockedOut: {}, createdAt: Date.now() });
                 showToast(isMaster ? '출역이 등록되었습니다.' : '출역 승인 요청이 전송되었습니다.');
             };
             const handleUpdateSubToDB = async (id, data, masterFlag) => {
@@ -1118,6 +1390,7 @@
                                 {[
                                     { id: 'dashboard', icon: 'fa-house', label: '홈' },
                                     { id: 'attendance', icon: 'fa-users', label: '출역' },
+                                    { id: 'dailyReport', icon: 'fa-file-lines', label: '출역일보', masterOnly: true },
                                     { id: 'tasks', icon: 'fa-list-check', label: '작업/위험' },
                                     { id: 'materials', icon: 'fa-calendar-check', label: '자재반입' },
                                     { id: 'requests', icon: 'fa-comment-dots', label: '소통' },
@@ -1134,7 +1407,8 @@
 
                     <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
                         {activeTab === 'dashboard' && <DashboardTab stats={stats} realWeather={dummyWeather} tasks={tasks} requests={requests} todayDateString={todayDateString} formatMd={(d)=>`${d.getMonth()+1}월 ${d.getDate()}일`} todayDate={new Date()} tomorrowDate={new Date(new Date().setDate(new Date().getDate()+1))} setActiveTab={setActiveTab} />}
-                        {activeTab === 'attendance' && <AttendanceTab subcontractors={subcontractors} savedSubs={savedSubs} riskMapping={riskMapping} stats={stats} loginRole={loginRole} isMaster={isMaster} myCompany={myCompany} handleAddSubToDB={handleAddSubToDB} handleUpdateSubToDB={handleUpdateSubToDB} handleApproveSubUpdate={handleApproveSubUpdate} handleRejectSubUpdate={handleRejectSubUpdate} deleteSubcontractor={(id)=> {if(user && confirm('삭제?')) deleteDoc(getDocRef('subcontractors',id))}} handleUpdateRiskMapping={async (k,v)=>{const nm={...riskMapping}; if(v===null) delete nm[k]; else nm[k]=v; await updateDoc(doc(db,'artifacts',appId,'public','data','settings','global'), {riskMapping:nm});}} handleClockOut={handleClockOut}/>}
+                        {activeTab === 'attendance' && <AttendanceTab subcontractors={subcontractors} savedSubs={savedSubs} riskMapping={riskMapping} stats={stats} loginRole={loginRole} isMaster={isMaster} myCompany={myCompany} handleAddSubToDB={handleAddSubToDB} handleUpdateSubToDB={handleUpdateSubToDB} handleApproveSubUpdate={handleApproveSubUpdate} handleRejectSubUpdate={handleRejectSubUpdate} deleteSubcontractor={(id)=> {if(user && confirm('삭제?')) deleteDoc(getDocRef('subcontractors',id))}} handleUpdateRiskMapping={async (k,v)=>{const nm={...riskMapping}; if(v===null) delete nm[k]; else nm[k]=v; await updateDoc(doc(db,'artifacts',appId,'public','data','settings','global'), {riskMapping:nm});}} handleClockOut={handleClockOut} todayStr={todayStr} />}
+                        {activeTab === 'dailyReport' && isMaster && <DailyReportTab subcontractors={subcontractors} tasks={tasks} todayStr={todayStr} yesterdayStr={yesterdayStr} />}
                         {activeTab === 'tasks' && <TasksTab tasks={tasks} riskMapping={riskMapping} isMaster={isMaster} myCompany={myCompany} handleAddTaskToDB={handleAddTaskToDB} handleUpdateTaskToDB={handleUpdateTaskToDB} handleApproveTaskUpdate={handleApproveTaskUpdate} handleRejectTaskUpdate={handleRejectTaskUpdate} deleteTask={(id)=>{if(confirm('삭제?')) deleteDoc(getDocRef('tasks',id))}}/>}
                         {activeTab === 'materials' && <MaterialTab materials={materials} isMaster={isMaster} myCompany={myCompany} handleAddMaterial={handleAddMaterial} handleApproveMaterial={handleApproveMaterial} handleDeleteMaterial={handleDeleteMaterial}/>}
                         {activeTab === 'requests' && <CommunicationTab requests={requests} loginRole={loginRole} canDelete={isMaster} handleAddRequestToDB={handleAddRequestToDB} deleteRequest={deleteRequest} />}
@@ -1142,12 +1416,11 @@
                         {activeTab === 'settings' && isMaster && <SettingsTab passwords={passwords} handleUpdatePasswords={handleUpdatePasswords} savedSubs={savedSubs} handleAddSavedSub={handleAddSavedSubToDB} handleUpdateSavedSub={handleUpdateSavedSubToDB} handleDeleteSavedSub={handleDeleteSavedSubFromDB} showToast={showToast} />}
                     </main>
 
-                    <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-3 flex justify-around sm:hidden z-30 pb-safe">
-                        <button onClick={()=>setActiveTab('dashboard')} className={`flex flex-col items-center gap-1 ${activeTab==='dashboard'?'text-blue-600':'text-slate-400'}`}><i className="fa-solid fa-house"></i><span className="text-[9px] font-bold">홈</span></button>
-                        <button onClick={()=>setActiveTab('attendance')} className={`flex flex-col items-center gap-1 ${activeTab==='attendance'?'text-blue-600':'text-slate-400'}`}><i className="fa-solid fa-users"></i><span className="text-[9px] font-bold">출역</span></button>
-                        <button onClick={()=>setActiveTab('tasks')} className={`flex flex-col items-center gap-1 ${activeTab==='tasks'?'text-blue-600':'text-slate-400'}`}><i className="fa-solid fa-list-check"></i><span className="text-[9px] font-bold">작업</span></button>
-                        <button onClick={()=>setActiveTab('materials')} className={`flex flex-col items-center gap-1 ${activeTab==='materials'?'text-blue-600':'text-slate-400'}`}><i className="fa-regular fa-calendar-check"></i><span className="text-[9px] font-bold">자재</span></button>
-                        <button onClick={()=>setActiveTab('requests')} className={`flex flex-col items-center gap-1 ${activeTab==='requests'?'text-blue-600':'text-slate-400'}`}><i className="fa-solid fa-comments"></i><span className="text-[9px] font-bold">소통</span></button>
+                    <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-3 flex justify-around md:hidden z-30 shadow-2xl pb-safe">
+                        <button onClick={()=>setActiveTab('dashboard')} className={`flex flex-col items-center gap-1 transition ${activeTab==='dashboard'?'text-blue-600 scale-110':'text-slate-400'}`}><i className="fa-solid fa-house"></i><span className="text-[9px] font-bold">홈</span></button>
+                        <button onClick={()=>setActiveTab('attendance')} className={`flex flex-col items-center gap-1 transition ${activeTab==='attendance'?'text-blue-600 scale-110':'text-slate-400'}`}><i className="fa-solid fa-users"></i><span className="text-[9px] font-bold">출역</span></button>
+                        <button onClick={()=>setActiveTab('tasks')} className={`flex flex-col items-center gap-1 transition ${activeTab==='tasks'?'text-blue-600 scale-110':'text-slate-400'}`}><i className="fa-solid fa-list-check"></i><span className="text-[9px] font-bold">작업</span></button>
+                        <button onClick={()=>setActiveTab('requests')} className={`flex flex-col items-center gap-1 transition ${activeTab==='requests'?'text-blue-600 scale-110':'text-slate-400'}`}><i className="fa-solid fa-comments"></i><span className="text-[9px] font-bold">소통</span></button>
                     </div>
                 </div>
             );
