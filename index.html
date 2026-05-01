@@ -212,7 +212,14 @@
         // ==========================================
         // 컴포넌트: 출역일보 (Master Only)
         // ==========================================
-        const DailyReportTab = ({ subcontractors, tasks, todayStr, yesterdayStr }) => {
+        const DailyReportTab = ({ subcontractors, tasks, todayStr }) => {
+            const [reportDateStr, setReportDateStr] = useState(todayStr);
+
+            // 선택된 날짜 기준 전일 계산
+            const reportYesterday = new Date(reportDateStr);
+            reportYesterday.setDate(reportYesterday.getDate() - 1);
+            const reportYesterdayStr = `${reportYesterday.getFullYear()}-${String(reportYesterday.getMonth() + 1).padStart(2, '0')}-${String(reportYesterday.getDate()).padStart(2, '0')}`;
+
             const formatTs = (ts) => {
                 const d = new Date(ts);
                 return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -220,28 +227,32 @@
 
             const approvedSubs = subcontractors.filter(s => s.status === 'approved');
             
+            // 선택된 날짜까지의 누계 계산을 위한 필터링
+            const cumulativeSubs = approvedSubs.filter(s => s.date <= reportDateStr);
+            
             // 전체 현장 누계 및 통계
-            const totalCumulative = approvedSubs.reduce((sum, s) => sum + (s.early||0) + (s.day||0) + (s.night||0), 0);
-            const totalToday = approvedSubs.filter(s => s.date === todayStr).reduce((sum, s) => sum + (s.early||0) + (s.day||0) + (s.night||0), 0);
-            const totalYesterday = approvedSubs.filter(s => s.date === yesterdayStr).reduce((sum, s) => sum + (s.early||0) + (s.day||0) + (s.night||0), 0);
+            const totalCumulative = cumulativeSubs.reduce((sum, s) => sum + (s.early||0) + (s.day||0) + (s.night||0), 0);
+            const totalToday = approvedSubs.filter(s => s.date === reportDateStr).reduce((sum, s) => sum + (s.early||0) + (s.day||0) + (s.night||0), 0);
+            const totalYesterday = approvedSubs.filter(s => s.date === reportYesterdayStr).reduce((sum, s) => sum + (s.early||0) + (s.day||0) + (s.night||0), 0);
 
             // 업체별 리포트 데이터
-            const subNames = [...new Set(approvedSubs.map(s => s.name))];
+            const subNames = [...new Set(cumulativeSubs.map(s => s.name))];
             
             const reportData = subNames.map(name => {
-                const mySubs = approvedSubs.filter(s => s.name === name);
+                const mySubs = cumulativeSubs.filter(s => s.name === name);
                 const myTasks = tasks.filter(t => t.subName === name && t.status === 'approved');
 
-                const todayTaskDoc = myTasks.find(t => formatTs(t.createdAt) === todayStr);
-                const yesterdayTaskDoc = myTasks.find(t => formatTs(t.createdAt) === yesterdayStr);
+                const todayTaskDoc = myTasks.find(t => formatTs(t.createdAt) === reportDateStr);
+                const yesterdayTaskDoc = myTasks.find(t => formatTs(t.createdAt) === reportYesterdayStr);
 
-                const todayTaskText = todayTaskDoc && todayTaskDoc.details ? todayTaskDoc.details.map(d => d.task).join(', ') : '-';
-                const yesterdayTaskText = yesterdayTaskDoc && yesterdayTaskDoc.details ? yesterdayTaskDoc.details.map(d => d.task).join(', ') : '-';
+                // 작업위치 + 작업내용으로 포맷팅
+                const todayTaskText = todayTaskDoc && todayTaskDoc.details ? todayTaskDoc.details.map(d => `[${d.location}] ${d.task}`).join(', ') : '-';
+                const yesterdayTaskText = yesterdayTaskDoc && yesterdayTaskDoc.details ? yesterdayTaskDoc.details.map(d => `[${d.location}] ${d.task}`).join(', ') : '-';
 
                 const tradeMap = {};
                 mySubs.forEach(subDoc => {
-                    const isToday = subDoc.date === todayStr;
-                    const isYesterday = subDoc.date === yesterdayStr;
+                    const isToday = subDoc.date === reportDateStr;
+                    const isYesterday = subDoc.date === reportYesterdayStr;
                     const totalDocWorkers = (subDoc.early||0) + (subDoc.day||0) + (subDoc.night||0);
                     
                     if (subDoc.workers && subDoc.workers.length > 0) {
@@ -253,7 +264,6 @@
                             if (isYesterday) tradeMap[tName].yesterday += 1;
                         });
                         
-                        // 명단 입력 누락된 인원이 있을 경우 메인 공종으로 계산
                         const unaccounted = totalDocWorkers - subDoc.workers.length;
                         if (unaccounted > 0) {
                             const mainTrade = subDoc.trade || '기본공종';
@@ -263,7 +273,6 @@
                             if (isYesterday) tradeMap[mainTrade].yesterday += unaccounted;
                         }
                     } else {
-                        // 명단이 아예 없으면 숫자로만 메인 공종 계산
                         const mainTrade = subDoc.trade || '기본공종';
                         if (!tradeMap[mainTrade]) tradeMap[mainTrade] = { yesterday: 0, today: 0, cumulative: 0 };
                         tradeMap[mainTrade].cumulative += totalDocWorkers;
@@ -281,11 +290,11 @@
                     name,
                     yesterdayTaskText,
                     todayTaskText,
-                    trades: tradesArray
+                    trades: tradesArray,
+                    // 필터링을 위한 누적 데이터 유무 확인
+                    hasData: tradesArray.some(t => t.cumulative > 0)
                 };
-            });
-
-            // 금일 데이터가 있거나 과거 데이터가 있는 업체만 표시할지 판단. (여기선 모든 내역이 있는 업체 표시)
+            }).filter(data => data.hasData);
             
             return (
                 <div className="space-y-6 animate-fade-in">
@@ -293,21 +302,21 @@
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div className="bg-white rounded-2xl shadow p-6 border border-slate-100 flex items-center justify-between">
                             <div>
-                                <p className="text-sm font-bold text-slate-500 mb-1">전일 전체 출역 ({yesterdayStr.slice(5)})</p>
+                                <p className="text-sm font-bold text-slate-500 mb-1">전일 전체 출역 ({reportYesterdayStr.slice(5)})</p>
                                 <p className="text-3xl font-black text-slate-700">{totalYesterday}명</p>
                             </div>
                             <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 text-xl"><i className="fa-solid fa-users"></i></div>
                         </div>
                         <div className="bg-blue-600 rounded-2xl shadow-lg p-6 border border-blue-500 flex items-center justify-between text-white">
                             <div>
-                                <p className="text-sm font-bold text-blue-200 mb-1">금일 전체 출역 ({todayStr.slice(5)})</p>
+                                <p className="text-sm font-bold text-blue-200 mb-1">선택일 전체 출역 ({reportDateStr.slice(5)})</p>
                                 <p className="text-3xl font-black">{totalToday}명</p>
                             </div>
                             <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center text-white text-xl"><i className="fa-solid fa-users"></i></div>
                         </div>
                         <div className="bg-white rounded-2xl shadow p-6 border border-slate-100 flex items-center justify-between">
                             <div>
-                                <p className="text-sm font-bold text-slate-500 mb-1">현장 총 누계 (공사시작~)</p>
+                                <p className="text-sm font-bold text-slate-500 mb-1">현장 총 누계 (~{reportDateStr.slice(5)})</p>
                                 <p className="text-3xl font-black text-slate-800">{totalCumulative}명</p>
                             </div>
                             <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 text-xl"><i className="fa-solid fa-chart-line"></i></div>
@@ -316,9 +325,15 @@
 
                     {/* 출역일보 테이블 */}
                     <div className="bg-white rounded-2xl shadow border border-slate-100 overflow-hidden">
-                        <div className="p-6 bg-slate-800 text-white flex justify-between items-center">
+                        <div className="p-4 md:p-6 bg-slate-800 text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                             <h3 className="font-bold text-lg flex items-center gap-2"><i className="fa-solid fa-file-lines text-blue-400"></i> 현장 출역일보 종합</h3>
-                            <button className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded font-bold transition" onClick={() => window.print()}><i className="fa-solid fa-print mr-1"></i> 출력</button>
+                            <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-2 bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-600">
+                                    <i className="fa-regular fa-calendar text-blue-300"></i>
+                                    <input type="date" className="bg-transparent text-white outline-none text-sm font-bold [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert" value={reportDateStr} onChange={(e) => setReportDateStr(e.target.value)} max={todayStr} />
+                                </div>
+                                <button className="text-xs bg-white/20 hover:bg-white/30 px-3 py-2 rounded font-bold transition" onClick={() => window.print()}><i className="fa-solid fa-print mr-1"></i> 출력</button>
+                            </div>
                         </div>
                         <div className="overflow-x-auto print:overflow-visible">
                             <table className="w-full text-sm text-center border-collapse">
@@ -329,8 +344,8 @@
                                         <th colSpan="4" className="p-2">출역인원 (명)</th>
                                     </tr>
                                     <tr>
-                                        <th className="p-2 border-r border-t border-slate-300 w-1/4">전일 ({yesterdayStr.slice(5)})</th>
-                                        <th className="p-2 border-r border-t border-slate-300 w-1/4 text-blue-700">금일 ({todayStr.slice(5)})</th>
+                                        <th className="p-2 border-r border-t border-slate-300 w-1/4">전일 ({reportYesterdayStr.slice(5)})</th>
+                                        <th className="p-2 border-r border-t border-slate-300 w-1/4 text-blue-700">금일 ({reportDateStr.slice(5)})</th>
                                         <th className="p-2 border-r border-t border-slate-300 w-24 bg-slate-50">세부공종</th>
                                         <th className="p-2 border-r border-t border-slate-300 w-16 bg-slate-50">전일</th>
                                         <th className="p-2 border-r border-t border-slate-300 w-16 bg-blue-50 text-blue-700">금일</th>
@@ -356,12 +371,12 @@
                                         ))
                                     ))}
                                     {reportData.length === 0 && (
-                                        <tr><td colSpan="7" className="p-10 text-slate-400">조회 가능한 데이터가 없습니다.</td></tr>
+                                        <tr><td colSpan="7" className="p-10 text-slate-400">해당 일자에 조회 가능한 데이터가 없습니다.</td></tr>
                                     )}
                                 </tbody>
                                 <tfoot className="bg-slate-800 text-white font-bold">
                                     <tr>
-                                        <td colSpan="4" className="p-3 border-r border-slate-700 text-right">현장 전체 총 계</td>
+                                        <td colSpan="4" className="p-3 border-r border-slate-700 text-right">선택일자 기준 총 계</td>
                                         <td className="p-3 border-r border-slate-700 text-center">{totalYesterday}</td>
                                         <td className="p-3 border-r border-slate-700 text-center text-blue-300">{totalToday}</td>
                                         <td className="p-3 text-center text-lg">{totalCumulative}</td>
@@ -373,7 +388,6 @@
                 </div>
             );
         };
-
 
         // ==========================================
         // 컴포넌트: 출역 관리
@@ -1408,7 +1422,7 @@
                     <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
                         {activeTab === 'dashboard' && <DashboardTab stats={stats} realWeather={dummyWeather} tasks={tasks} requests={requests} todayDateString={todayDateString} formatMd={(d)=>`${d.getMonth()+1}월 ${d.getDate()}일`} todayDate={new Date()} tomorrowDate={new Date(new Date().setDate(new Date().getDate()+1))} setActiveTab={setActiveTab} />}
                         {activeTab === 'attendance' && <AttendanceTab subcontractors={subcontractors} savedSubs={savedSubs} riskMapping={riskMapping} stats={stats} loginRole={loginRole} isMaster={isMaster} myCompany={myCompany} handleAddSubToDB={handleAddSubToDB} handleUpdateSubToDB={handleUpdateSubToDB} handleApproveSubUpdate={handleApproveSubUpdate} handleRejectSubUpdate={handleRejectSubUpdate} deleteSubcontractor={(id)=> {if(user && confirm('삭제?')) deleteDoc(getDocRef('subcontractors',id))}} handleUpdateRiskMapping={async (k,v)=>{const nm={...riskMapping}; if(v===null) delete nm[k]; else nm[k]=v; await updateDoc(doc(db,'artifacts',appId,'public','data','settings','global'), {riskMapping:nm});}} handleClockOut={handleClockOut} todayStr={todayStr} />}
-                        {activeTab === 'dailyReport' && isMaster && <DailyReportTab subcontractors={subcontractors} tasks={tasks} todayStr={todayStr} yesterdayStr={yesterdayStr} />}
+                        {activeTab === 'dailyReport' && isMaster && <DailyReportTab subcontractors={subcontractors} tasks={tasks} todayStr={todayStr} />}
                         {activeTab === 'tasks' && <TasksTab tasks={tasks} riskMapping={riskMapping} isMaster={isMaster} myCompany={myCompany} handleAddTaskToDB={handleAddTaskToDB} handleUpdateTaskToDB={handleUpdateTaskToDB} handleApproveTaskUpdate={handleApproveTaskUpdate} handleRejectTaskUpdate={handleRejectTaskUpdate} deleteTask={(id)=>{if(confirm('삭제?')) deleteDoc(getDocRef('tasks',id))}}/>}
                         {activeTab === 'materials' && <MaterialTab materials={materials} isMaster={isMaster} myCompany={myCompany} handleAddMaterial={handleAddMaterial} handleApproveMaterial={handleApproveMaterial} handleDeleteMaterial={handleDeleteMaterial}/>}
                         {activeTab === 'requests' && <CommunicationTab requests={requests} loginRole={loginRole} canDelete={isMaster} handleAddRequestToDB={handleAddRequestToDB} deleteRequest={deleteRequest} />}
