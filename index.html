@@ -150,7 +150,28 @@
             const [img, setImg] = useState(null);
             const fileInputRef = useRef(null);
 
-            const handleImg = (e) => { const f = e.target.files[0]; if(f) { const r = new FileReader(); r.onloadend = () => setImg(r.result); r.readAsDataURL(f); } };
+            const handleImg = (e) => {
+                const f = e.target.files[0];
+                if (f) {
+                    const r = new FileReader();
+                    r.onloadend = () => {
+                        const imgObj = new Image();
+                        imgObj.onload = () => {
+                            const canvas = document.createElement('canvas');
+                            let width = imgObj.width;
+                            let height = imgObj.height;
+                            const MAX_WIDTH = 800; // 가로 최대 길이 제한으로 자동 압축
+                            if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
+                            canvas.width = width; canvas.height = height;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(imgObj, 0, 0, width, height);
+                            setImg(canvas.toDataURL('image/jpeg', 0.6)); // JPEG 60% 품질로 압축
+                        };
+                        imgObj.src = r.result;
+                    };
+                    r.readAsDataURL(f);
+                }
+            };
             const onSubmit = (e) => {
                 e.preventDefault();
                 if (!newReq.content.trim() && !img) return alert('내용 또는 사진을 입력하세요.');
@@ -616,8 +637,30 @@
             const [newCheck, setNewCheck] = useState({ date: new Date().toISOString().split('T')[0], trade: Object.keys(riskMapping)[0] || '', location: '', content: '', dueDate: new Date().toISOString().split('T')[0] });
             const [img, setImg] = useState(null);
             const fileRef = useRef(null);
+            const [expandedImage, setExpandedImage] = useState(null); // 확대된 이미지 상태 관리
 
-            const handleImg = (e) => { const f = e.target.files[0]; if(f) { const r = new FileReader(); r.onloadend = () => setImg(r.result); r.readAsDataURL(f); } };
+            const handleImg = (e) => {
+                const f = e.target.files[0];
+                if (f) {
+                    const r = new FileReader();
+                    r.onloadend = () => {
+                        const imgObj = new Image();
+                        imgObj.onload = () => {
+                            const canvas = document.createElement('canvas');
+                            let width = imgObj.width;
+                            let height = imgObj.height;
+                            const MAX_WIDTH = 800; // 가로 최대 길이 제한
+                            if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
+                            canvas.width = width; canvas.height = height;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(imgObj, 0, 0, width, height);
+                            setImg(canvas.toDataURL('image/jpeg', 0.6)); // 압축
+                        };
+                        imgObj.src = r.result;
+                    };
+                    r.readAsDataURL(f);
+                }
+            };
             
             const onSubmit = (e) => {
                 e.preventDefault();
@@ -646,7 +689,7 @@
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {checklists.map(c => (
                             <div key={c.id} className={`bg-white rounded-xl border p-4 shadow-sm flex gap-4 transition-all ${c.isCompleted ? 'opacity-60 grayscale bg-slate-50' : 'border-slate-200'}`}>
-                                {c.image ? <img src={c.image} className="w-24 h-24 object-cover rounded-lg border"/> : <div className="w-24 h-24 bg-slate-100 rounded-lg flex items-center justify-center text-slate-300"><i className="fa-solid fa-image text-2xl"></i></div>}
+                                {c.image ? <img src={c.image} onClick={() => setExpandedImage(c.image)} className="w-24 h-24 object-cover rounded-lg border cursor-pointer hover:opacity-80 transition" alt="checklist"/> : <div className="w-24 h-24 bg-slate-100 rounded-lg flex items-center justify-center text-slate-300"><i className="fa-solid fa-image text-2xl"></i></div>}
                                 <div className="flex-1 relative">
                                     <div className="flex justify-between items-start mb-1">
                                         <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded">{c.trade}</span>
@@ -664,6 +707,14 @@
                             </div>
                         ))}
                     </div>
+
+                    {/* 사진 확대 모달 */}
+                    {expandedImage && (
+                        <div className="fixed inset-0 z-50 bg-black/90 flex justify-center items-center p-4 cursor-pointer animate-fade-in" onClick={() => setExpandedImage(null)}>
+                            <button className="absolute top-6 right-6 text-white hover:text-rose-500 transition z-50"><i className="fa-solid fa-xmark text-4xl"></i></button>
+                            <img src={expandedImage} className="max-w-full max-h-full object-contain rounded-xl shadow-2xl cursor-default" onClick={(e) => e.stopPropagation()} alt="expanded"/>
+                        </div>
+                    )}
                 </div>
             );
         };
@@ -956,7 +1007,12 @@
             // 체크리스트 API
             const handleAddChecklist = async (data) => {
                 if(!user) return;
-                await setDoc(getDocRef('checklists', Date.now().toString()), { ...data, isCompleted: false, createdAt: Date.now() });
+                try {
+                    await setDoc(getDocRef('checklists', Date.now().toString()), { ...data, isCompleted: false, createdAt: Date.now() });
+                } catch(e) {
+                    alert('업로드 실패: 사진 용량이 너무 큽니다. 다른 사진을 시도해주세요.');
+                    console.error(e);
+                }
             };
             const handleToggleChecklist = async (id, isCompleted) => {
                 if(!user) return; await updateDoc(getDocRef('checklists', id), { isCompleted });
@@ -991,12 +1047,17 @@
 
             const handleAddRequestToDB = async (newReq, img, currentRole) => {
                 if(!user || !db) return;
-                const newId = Date.now().toString();
-                await setDoc(getDocRef('requests', newId), {
-                    sender: `${currentRole.split(' ')[0]} (나)`, type: newReq.type, content: newReq.content, image: img,
-                    time: new Date().toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' }), status: '대기', createdAt: Date.now()
-                });
-                showToast('메시지가 전송되었습니다.');
+                try {
+                    const newId = Date.now().toString();
+                    await setDoc(getDocRef('requests', newId), {
+                        sender: `${currentRole.split(' ')[0]} (나)`, type: newReq.type, content: newReq.content, image: img,
+                        time: new Date().toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' }), status: '대기', createdAt: Date.now()
+                    });
+                    showToast('메시지가 전송되었습니다.');
+                } catch(e) {
+                    alert('전송 실패: 사진 용량이 너무 큽니다. 다른 사진을 시도해주세요.');
+                    console.error(e);
+                }
             };
             const deleteRequest = async (id) => { if(!user) return; await deleteDoc(getDocRef('requests', id)); };
 
