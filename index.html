@@ -210,12 +210,13 @@
         };
 
         // ==========================================
-        // 컴포넌트: 출역일보 (Master Only)
+        // 컴포넌트: 출역일보 (Master Only / DB 연동 + 직접 편집 가능)
         // ==========================================
-        const DailyReportTab = ({ subcontractors, tasks, todayStr }) => {
+        const DailyReportTab = ({ subcontractors, tasks, dailyReports, todayStr, handleSaveDailyReport }) => {
             const [reportDateStr, setReportDateStr] = useState(todayStr);
+            const [isEditing, setIsEditing] = useState(false);
+            const [localData, setLocalData] = useState([]);
 
-            // 선택된 날짜 기준 전일 계산
             const reportYesterday = new Date(reportDateStr);
             reportYesterday.setDate(reportYesterday.getDate() - 1);
             const reportYesterdayStr = `${reportYesterday.getFullYear()}-${String(reportYesterday.getMonth() + 1).padStart(2, '0')}-${String(reportYesterday.getDate()).padStart(2, '0')}`;
@@ -225,77 +226,110 @@
                 return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
             };
 
-            const approvedSubs = subcontractors.filter(s => s.status === 'approved');
-            
-            // 선택된 날짜까지의 누계 계산을 위한 필터링
-            const cumulativeSubs = approvedSubs.filter(s => s.date <= reportDateStr);
-            
-            // 전체 현장 누계 및 통계
-            const totalCumulative = cumulativeSubs.reduce((sum, s) => sum + (s.early||0) + (s.day||0) + (s.night||0), 0);
-            const totalToday = approvedSubs.filter(s => s.date === reportDateStr).reduce((sum, s) => sum + (s.early||0) + (s.day||0) + (s.night||0), 0);
-            const totalYesterday = approvedSubs.filter(s => s.date === reportYesterdayStr).reduce((sum, s) => sum + (s.early||0) + (s.day||0) + (s.night||0), 0);
+            useEffect(() => {
+                if (isEditing) return; // 수정 중에는 리로드 방지
 
-            // 업체별 리포트 데이터
-            const subNames = [...new Set(cumulativeSubs.map(s => s.name))];
-            
-            const reportData = subNames.map(name => {
-                const mySubs = cumulativeSubs.filter(s => s.name === name);
-                const myTasks = tasks.filter(t => t.subName === name && t.status === 'approved');
+                const savedReport = dailyReports.find(r => r.id === reportDateStr);
+                if (savedReport) {
+                    setLocalData(savedReport.entries);
+                } else {
+                    // 저장된 일보가 없으면 데이터베이스(subcontractors, tasks)에서 자동 계산 생성
+                    const approvedSubs = subcontractors.filter(s => s.status === 'approved');
+                    const cumulativeSubs = approvedSubs.filter(s => s.date <= reportDateStr);
+                    const uniqueKeys = [...new Set(cumulativeSubs.map(s => `${s.name}|${s.trade}`))];
 
-                const todayTaskDoc = myTasks.find(t => formatTs(t.createdAt) === reportDateStr);
-                const yesterdayTaskDoc = myTasks.find(t => formatTs(t.createdAt) === reportYesterdayStr);
+                    const generated = uniqueKeys.map((key, kIdx) => {
+                        const [name, trade] = key.split('|');
 
-                // 작업위치 + 작업내용으로 포맷팅
-                const todayTaskText = todayTaskDoc && todayTaskDoc.details ? todayTaskDoc.details.map(d => `[${d.location}] ${d.task}`).join(', ') : '-';
-                const yesterdayTaskText = yesterdayTaskDoc && yesterdayTaskDoc.details ? yesterdayTaskDoc.details.map(d => `[${d.location}] ${d.task}`).join(', ') : '-';
+                        // 작업내용 매핑 (공종 일치)
+                        const myTasks = tasks.filter(t => t.subName === name && t.trade === trade && t.status === 'approved');
+                        const todayTaskDoc = myTasks.find(t => formatTs(t.createdAt) === reportDateStr);
+                        const yesterdayTaskDoc = myTasks.find(t => formatTs(t.createdAt) === reportYesterdayStr);
 
-                const tradeMap = {};
-                mySubs.forEach(subDoc => {
-                    const isToday = subDoc.date === reportDateStr;
-                    const isYesterday = subDoc.date === reportYesterdayStr;
-                    const totalDocWorkers = (subDoc.early||0) + (subDoc.day||0) + (subDoc.night||0);
-                    
-                    if (subDoc.workers && subDoc.workers.length > 0) {
-                        subDoc.workers.forEach(w => {
-                            const tName = w.detailTrade || '미입력';
-                            if (!tradeMap[tName]) tradeMap[tName] = { yesterday: 0, today: 0, cumulative: 0 };
-                            tradeMap[tName].cumulative += 1;
-                            if (isToday) tradeMap[tName].today += 1;
-                            if (isYesterday) tradeMap[tName].yesterday += 1;
+                        const todayTaskText = todayTaskDoc && todayTaskDoc.details ? todayTaskDoc.details.map(d => `[${d.location}] ${d.task}`).join('\n') : '';
+                        const yesterdayTaskText = yesterdayTaskDoc && yesterdayTaskDoc.details ? yesterdayTaskDoc.details.map(d => `[${d.location}] ${d.task}`).join('\n') : '';
+
+                        // 세부공종 인원 매핑
+                        const mySubs = cumulativeSubs.filter(s => s.name === name && s.trade === trade);
+                        const tradeMap = {};
+
+                        mySubs.forEach(subDoc => {
+                            const isToday = subDoc.date === reportDateStr;
+                            const isYesterday = subDoc.date === reportYesterdayStr;
+                            const totalDocWorkers = (subDoc.early||0) + (subDoc.day||0) + (subDoc.night||0);
+                            
+                            if (subDoc.workers && subDoc.workers.length > 0) {
+                                subDoc.workers.forEach(w => {
+                                    const tName = w.detailTrade || '미입력';
+                                    if (!tradeMap[tName]) tradeMap[tName] = { yesterday: 0, today: 0, cumulative: 0 };
+                                    tradeMap[tName].cumulative += 1;
+                                    if (isToday) tradeMap[tName].today += 1;
+                                    if (isYesterday) tradeMap[tName].yesterday += 1;
+                                });
+                                
+                                const unaccounted = totalDocWorkers - subDoc.workers.length;
+                                if (unaccounted > 0) {
+                                    const mainTrade = trade || '기본공종';
+                                    if (!tradeMap[mainTrade]) tradeMap[mainTrade] = { yesterday: 0, today: 0, cumulative: 0 };
+                                    tradeMap[mainTrade].cumulative += unaccounted;
+                                    if (isToday) tradeMap[mainTrade].today += unaccounted;
+                                    if (isYesterday) tradeMap[mainTrade].yesterday += unaccounted;
+                                }
+                            } else {
+                                const mainTrade = trade || '기본공종';
+                                if (!tradeMap[mainTrade]) tradeMap[mainTrade] = { yesterday: 0, today: 0, cumulative: 0 };
+                                tradeMap[mainTrade].cumulative += totalDocWorkers;
+                                if (isToday) tradeMap[mainTrade].today += totalDocWorkers;
+                                if (isYesterday) tradeMap[mainTrade].yesterday += totalDocWorkers;
+                            }
                         });
-                        
-                        const unaccounted = totalDocWorkers - subDoc.workers.length;
-                        if (unaccounted > 0) {
-                            const mainTrade = subDoc.trade || '기본공종';
-                            if (!tradeMap[mainTrade]) tradeMap[mainTrade] = { yesterday: 0, today: 0, cumulative: 0 };
-                            tradeMap[mainTrade].cumulative += unaccounted;
-                            if (isToday) tradeMap[mainTrade].today += unaccounted;
-                            if (isYesterday) tradeMap[mainTrade].yesterday += unaccounted;
-                        }
-                    } else {
-                        const mainTrade = subDoc.trade || '기본공종';
-                        if (!tradeMap[mainTrade]) tradeMap[mainTrade] = { yesterday: 0, today: 0, cumulative: 0 };
-                        tradeMap[mainTrade].cumulative += totalDocWorkers;
-                        if (isToday) tradeMap[mainTrade].today += totalDocWorkers;
-                        if (isYesterday) tradeMap[mainTrade].yesterday += totalDocWorkers;
-                    }
-                });
 
-                let tradesArray = Object.keys(tradeMap).map(k => ({ name: k, ...tradeMap[k] }));
-                if (tradesArray.length === 0) {
-                    tradesArray = [{ name: '-', yesterday: 0, today: 0, cumulative: 0 }];
+                        const detailTrades = Object.keys(tradeMap).map((k, i) => ({ id: `dt_${kIdx}_${i}`, name: k, ...tradeMap[k] }));
+
+                        return {
+                            id: `entry_${kIdx}`,
+                            subName: name,
+                            trade: trade,
+                            yesterdayTask: yesterdayTaskText,
+                            todayTask: todayTaskText,
+                            detailTrades: detailTrades.length > 0 ? detailTrades : [{ id: `dt_${kIdx}_empty`, name: '-', yesterday: 0, today: 0, cumulative: 0 }]
+                        };
+                    }).filter(entry => entry.detailTrades.some(dt => dt.cumulative > 0)); // 누계가 0인 과거 업체 제외
+
+                    setLocalData(generated);
                 }
+            }, [reportDateStr, dailyReports, subcontractors, tasks, isEditing, reportYesterdayStr]);
 
-                return {
-                    name,
-                    yesterdayTaskText,
-                    todayTaskText,
-                    trades: tradesArray,
-                    // 필터링을 위한 누적 데이터 유무 확인
-                    hasData: tradesArray.some(t => t.cumulative > 0)
-                };
-            }).filter(data => data.hasData);
-            
+            // 로컬 데이터 기반 실시간 합계 계산
+            const totalYesterday = localData.reduce((sum, e) => sum + e.detailTrades.reduce((s, dt) => s + (Number(dt.yesterday)||0), 0), 0);
+            const totalToday = localData.reduce((sum, e) => sum + e.detailTrades.reduce((s, dt) => s + (Number(dt.today)||0), 0), 0);
+            const totalCumulative = localData.reduce((sum, e) => sum + e.detailTrades.reduce((s, dt) => s + (Number(dt.cumulative)||0), 0), 0);
+
+            // 편집 핸들러
+            const updateEntry = (eIdx, field, val) => {
+                const newData = [...localData]; newData[eIdx][field] = val; setLocalData(newData);
+            };
+            const updateDetail = (eIdx, dtIdx, field, val) => {
+                const newData = [...localData]; newData[eIdx].detailTrades[dtIdx][field] = field === 'name' ? val : Number(val); setLocalData(newData);
+            };
+            const removeEntry = (eIdx) => {
+                if(confirm('이 업체의 출역 내용 전체를 삭제할까요?')) setLocalData(localData.filter((_, i) => i !== eIdx));
+            };
+            const removeDetail = (eIdx, dtIdx) => {
+                const newData = [...localData]; newData[eIdx].detailTrades = newData[eIdx].detailTrades.filter((_, i) => i !== dtIdx); setLocalData(newData);
+            };
+            const addDetailTrade = (eIdx) => {
+                const newData = [...localData]; newData[eIdx].detailTrades.push({ id: `dt_new_${Date.now()}`, name: '', yesterday: 0, today: 0, cumulative: 0 }); setLocalData(newData);
+            };
+            const addEntry = () => {
+                setLocalData([...localData, { id: `entry_new_${Date.now()}`, subName: '', trade: '', yesterdayTask: '', todayTask: '', detailTrades: [{ id: `dt_new_${Date.now()}_1`, name: '', yesterday: 0, today: 0, cumulative: 0 }] }]);
+            };
+
+            const onSave = () => {
+                handleSaveDailyReport(reportDateStr, localData);
+                setIsEditing(false);
+            };
+
             return (
                 <div className="space-y-6 animate-fade-in">
                     {/* 상단 요약 카드 */}
@@ -326,21 +360,36 @@
                     {/* 출역일보 테이블 */}
                     <div className="bg-white rounded-2xl shadow border border-slate-100 overflow-hidden">
                         <div className="p-4 md:p-6 bg-slate-800 text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                            <h3 className="font-bold text-lg flex items-center gap-2"><i className="fa-solid fa-file-lines text-blue-400"></i> 현장 출역일보 종합</h3>
+                            <h3 className="font-bold text-lg flex items-center gap-2">
+                                <i className="fa-solid fa-file-lines text-blue-400"></i> 현장 출역일보 종합 
+                                {dailyReports.some(r => r.id === reportDateStr) && <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 px-2 py-0.5 rounded ml-2">DB 저장됨</span>}
+                            </h3>
                             <div className="flex items-center gap-3">
                                 <div className="flex items-center gap-2 bg-slate-700 px-3 py-1.5 rounded-lg border border-slate-600">
                                     <i className="fa-regular fa-calendar text-blue-300"></i>
-                                    <input type="date" className="bg-transparent text-white outline-none text-sm font-bold [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert" value={reportDateStr} onChange={(e) => setReportDateStr(e.target.value)} max={todayStr} />
+                                    <input type="date" className="bg-transparent text-white outline-none text-sm font-bold [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert cursor-pointer" value={reportDateStr} onChange={(e) => {setReportDateStr(e.target.value); setIsEditing(false);}} />
                                 </div>
-                                <button className="text-xs bg-white/20 hover:bg-white/30 px-3 py-2 rounded font-bold transition" onClick={() => window.print()}><i className="fa-solid fa-print mr-1"></i> 출력</button>
+                                {isEditing ? (
+                                    <div className="flex gap-2">
+                                        <button onClick={onSave} className="text-xs bg-blue-500 hover:bg-blue-600 px-4 py-2 rounded font-bold transition shadow-lg">저장 완료</button>
+                                        <button onClick={() => setIsEditing(false)} className="text-xs bg-slate-600 hover:bg-slate-500 px-3 py-2 rounded font-bold transition">취소</button>
+                                    </div>
+                                ) : (
+                                    <div className="flex gap-2">
+                                        <button className="text-xs bg-white/20 hover:bg-white/30 px-3 py-2 rounded font-bold transition" onClick={() => setIsEditing(true)}><i className="fa-solid fa-pen"></i> 수정 모드</button>
+                                        <button className="text-xs bg-white/20 hover:bg-white/30 px-3 py-2 rounded font-bold transition" onClick={() => window.print()}><i className="fa-solid fa-print mr-1"></i> 출력</button>
+                                    </div>
+                                )}
                             </div>
                         </div>
-                        <div className="overflow-x-auto print:overflow-visible">
-                            <table className="w-full text-sm text-center border-collapse">
+                        
+                        <div className="overflow-x-auto print:overflow-visible relative">
+                            {isEditing && <div className="absolute top-0 left-0 right-0 bg-blue-50/80 text-blue-600 text-[10px] font-bold py-1 text-center border-b border-blue-100 z-10 animate-pulse">현재 일보를 직접 편집 중입니다. 수정 후 반드시 '저장 완료'를 눌러주세요.</div>}
+                            <table className="w-full text-sm text-center border-collapse mt-2">
                                 <thead className="bg-slate-100 text-slate-700 text-xs font-bold border-b-2 border-slate-300">
                                     <tr>
-                                        <th rowSpan="2" className="p-3 border-r border-slate-300 w-28">업체명</th>
-                                        <th colSpan="2" className="p-2 border-r border-slate-300 bg-slate-200/50">작업내용</th>
+                                        <th rowSpan="2" className="p-3 border-r border-slate-300 w-32">업체명 및 공종</th>
+                                        <th colSpan="2" className="p-2 border-r border-slate-300 bg-slate-200/50">작업내용 (위치 및 내용)</th>
                                         <th colSpan="4" className="p-2">출역인원 (명)</th>
                                     </tr>
                                     <tr>
@@ -353,24 +402,70 @@
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-200">
-                                    {reportData.map((data, idx) => (
-                                        data.trades.map((trade, tIdx) => (
-                                            <tr key={`${idx}-${tIdx}`} className="hover:bg-blue-50/30 transition">
-                                                {tIdx === 0 && (
+                                    {localData.map((entry, eIdx) => (
+                                        entry.detailTrades.map((dt, dtIdx) => (
+                                            <tr key={`${entry.id}-${dt.id}`} className="hover:bg-blue-50/30 transition">
+                                                {dtIdx === 0 && (
                                                     <>
-                                                        <td rowSpan={data.trades.length} className="p-3 border-r border-slate-200 font-black text-slate-800 bg-slate-50 align-middle">{data.name}</td>
-                                                        <td rowSpan={data.trades.length} className="p-3 border-r border-slate-200 text-left align-top"><div className="text-xs text-slate-600 max-h-24 overflow-y-auto pr-1">{data.yesterdayTaskText}</div></td>
-                                                        <td rowSpan={data.trades.length} className="p-3 border-r border-slate-200 text-left align-top"><div className="text-xs text-slate-800 font-bold max-h-24 overflow-y-auto pr-1">{data.todayTaskText}</div></td>
+                                                        <td rowSpan={entry.detailTrades.length} className={`p-3 border-r border-slate-200 align-middle ${isEditing ? 'bg-amber-50/30' : 'bg-slate-50'}`}>
+                                                            {isEditing ? (
+                                                                <div className="flex flex-col gap-1.5">
+                                                                    <input className="w-full border p-1.5 text-xs rounded font-bold outline-none focus:border-blue-400" placeholder="업체명" value={entry.subName} onChange={(e) => updateEntry(eIdx, 'subName', e.target.value)} />
+                                                                    <input className="w-full border p-1.5 text-xs rounded text-blue-600 outline-none focus:border-blue-400" placeholder="공종" value={entry.trade} onChange={(e) => updateEntry(eIdx, 'trade', e.target.value)} />
+                                                                    <button onClick={() => addDetailTrade(eIdx)} className="text-[10px] bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200 py-1 rounded w-full mt-1">세부공종 추가</button>
+                                                                    <button onClick={() => removeEntry(eIdx)} className="text-[10px] text-rose-400 hover:text-rose-600 mt-1">이 업체행 삭제</button>
+                                                                </div>
+                                                            ) : (
+                                                                <div>
+                                                                    <div className="font-black text-slate-800">{entry.subName || '-'}</div>
+                                                                    <div className="text-[10px] text-blue-600 mt-0.5">{entry.trade || '-'}</div>
+                                                                </div>
+                                                            )}
+                                                        </td>
+                                                        <td rowSpan={entry.detailTrades.length} className={`p-2 border-r border-slate-200 align-top ${isEditing ? 'bg-amber-50/30' : ''}`}>
+                                                            {isEditing ? (
+                                                                <textarea className="w-full h-24 p-1.5 border rounded text-xs outline-none focus:border-blue-400 resize-none whitespace-pre-wrap" placeholder="전일 작업내용" value={entry.yesterdayTask} onChange={(e) => updateEntry(eIdx, 'yesterdayTask', e.target.value)} />
+                                                            ) : (
+                                                                <div className="text-xs text-slate-600 text-left max-h-24 overflow-y-auto whitespace-pre-wrap leading-relaxed">{entry.yesterdayTask || '-'}</div>
+                                                            )}
+                                                        </td>
+                                                        <td rowSpan={entry.detailTrades.length} className={`p-2 border-r border-slate-200 align-top ${isEditing ? 'bg-amber-50/30' : ''}`}>
+                                                            {isEditing ? (
+                                                                <textarea className="w-full h-24 p-1.5 border rounded text-xs outline-none focus:border-blue-400 resize-none whitespace-pre-wrap font-bold" placeholder="금일 작업내용" value={entry.todayTask} onChange={(e) => updateEntry(eIdx, 'todayTask', e.target.value)} />
+                                                            ) : (
+                                                                <div className="text-xs text-slate-800 font-bold text-left max-h-24 overflow-y-auto whitespace-pre-wrap leading-relaxed">{entry.todayTask || '-'}</div>
+                                                            )}
+                                                        </td>
                                                     </>
                                                 )}
-                                                <td className="p-2 border-r border-slate-200 text-[11px] font-bold text-slate-600">{trade.name}</td>
-                                                <td className="p-2 border-r border-slate-200 text-slate-500">{trade.yesterday > 0 ? trade.yesterday : '-'}</td>
-                                                <td className="p-2 border-r border-slate-200 font-bold text-blue-600 bg-blue-50/30">{trade.today > 0 ? trade.today : '-'}</td>
-                                                <td className="p-2 font-black text-slate-700 bg-slate-50/50">{trade.cumulative}</td>
+                                                <td className={`p-2 border-r border-slate-200 text-[11px] font-bold text-slate-600 ${isEditing ? 'bg-amber-50/30' : ''}`}>
+                                                    {isEditing ? (
+                                                        <div className="flex items-center gap-1">
+                                                            <input className="w-full border p-1 rounded text-center outline-none focus:border-blue-400" value={dt.name} onChange={(e) => updateDetail(eIdx, dtIdx, 'name', e.target.value)} />
+                                                            {entry.detailTrades.length > 1 && <button onClick={() => removeDetail(eIdx, dtIdx)} className="text-rose-400 hover:text-rose-600"><i className="fa-solid fa-xmark"></i></button>}
+                                                        </div>
+                                                    ) : dt.name}
+                                                </td>
+                                                <td className={`p-2 border-r border-slate-200 text-slate-500 ${isEditing ? 'bg-amber-50/30' : ''}`}>
+                                                    {isEditing ? <input type="number" min="0" className="w-12 border p-1 rounded text-center outline-none focus:border-blue-400" value={dt.yesterday} onChange={(e) => updateDetail(eIdx, dtIdx, 'yesterday', e.target.value)} /> : (dt.yesterday > 0 ? dt.yesterday : '-')}
+                                                </td>
+                                                <td className={`p-2 border-r border-slate-200 font-bold text-blue-600 ${isEditing ? 'bg-amber-50/30' : 'bg-blue-50/30'}`}>
+                                                    {isEditing ? <input type="number" min="0" className="w-12 border p-1 rounded text-center outline-none focus:border-blue-400 font-bold" value={dt.today} onChange={(e) => updateDetail(eIdx, dtIdx, 'today', e.target.value)} /> : (dt.today > 0 ? dt.today : '-')}
+                                                </td>
+                                                <td className={`p-2 font-black text-slate-700 ${isEditing ? 'bg-amber-50/30' : 'bg-slate-50/50'}`}>
+                                                    {isEditing ? <input type="number" min="0" className="w-16 border p-1 rounded text-center outline-none focus:border-blue-400 font-black bg-slate-100" value={dt.cumulative} onChange={(e) => updateDetail(eIdx, dtIdx, 'cumulative', e.target.value)} /> : dt.cumulative}
+                                                </td>
                                             </tr>
                                         ))
                                     ))}
-                                    {reportData.length === 0 && (
+                                    {isEditing && (
+                                        <tr>
+                                            <td colSpan="7" className="p-3 bg-slate-50/50 border-t border-slate-200">
+                                                <button onClick={addEntry} className="w-full bg-white border border-dashed border-slate-300 text-slate-500 hover:bg-slate-100 hover:text-slate-700 font-bold py-3 rounded-lg text-xs transition"><i className="fa-solid fa-plus mr-1"></i> 새로운 업체 및 공종 칸 추가</button>
+                                            </td>
+                                        </tr>
+                                    )}
+                                    {!isEditing && localData.length === 0 && (
                                         <tr><td colSpan="7" className="p-10 text-slate-400">해당 일자에 조회 가능한 데이터가 없습니다.</td></tr>
                                     )}
                                 </tbody>
@@ -1137,6 +1232,7 @@
             const [materials, setMaterials] = useState([]);
             const [checklists, setChecklists] = useState([]);
             const [requests, setRequests] = useState([]);
+            const [dailyReports, setDailyReports] = useState([]);
             const [riskMapping, setRiskMapping] = useState(INITIAL_RISK_MAPPING);
             const [passwords, setPasswords] = useState(INITIAL_PASSWORDS);
 
@@ -1199,13 +1295,18 @@
                 const unsubChecks = onSnapshot(getPublicCol('checklists'), snap => setChecklists(snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b)=>b.createdAt-a.createdAt)), e=>console.error(e));
                 const unsubReqs = onSnapshot(getPublicCol('requests'), snap => { setRequests(snap.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b)=>b.createdAt-a.createdAt)); setHasNewNotification(true); }, e=>console.error(e));
                 
+                // 출역일보 저장용 컬렉션 리스너
+                const unsubDailyReports = onSnapshot(getPublicCol('daily_reports'), snap => {
+                    setDailyReports(snap.docs.map(d => ({id: d.id, ...d.data()})));
+                }, e => console.error(e));
+
                 const unsubSettings = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'global'), snap => {
                     if (snap.exists()) {
                         const d = snap.data(); if(d.riskMapping) setRiskMapping(d.riskMapping); if(d.passwords) setPasswords(d.passwords);
                     } else setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'global'), { riskMapping: INITIAL_RISK_MAPPING, passwords: INITIAL_PASSWORDS });
                 }, e=>console.error(e));
 
-                return () => { unsubSavedSubs(); unsubSubs(); unsubTasks(); unsubMats(); unsubChecks(); unsubReqs(); unsubSettings(); };
+                return () => { unsubSavedSubs(); unsubSubs(); unsubTasks(); unsubMats(); unsubChecks(); unsubReqs(); unsubDailyReports(); unsubSettings(); };
             }, [user]);
 
             const getDocRef = (col, docId) => doc(db, 'artifacts', appId, 'public', 'data', col, String(docId));
@@ -1275,6 +1376,13 @@
             const handleRejectTaskUpdate = async (id) => {
                 if(!user) return;
                 await updateDoc(getDocRef('tasks', id), { status: 'approved', pendingData: null });
+            };
+
+            // 출역일보 편집/저장 API
+            const handleSaveDailyReport = async (dateStr, data) => {
+                if(!user) return;
+                await setDoc(getDocRef('daily_reports', dateStr), { entries: data, updatedAt: Date.now() });
+                showToast(`${dateStr.slice(5)} 기준 출역일보가 저장되었습니다.`);
             };
 
             // 자재 반입 API
@@ -1422,7 +1530,7 @@
                     <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
                         {activeTab === 'dashboard' && <DashboardTab stats={stats} realWeather={dummyWeather} tasks={tasks} requests={requests} todayDateString={todayDateString} formatMd={(d)=>`${d.getMonth()+1}월 ${d.getDate()}일`} todayDate={new Date()} tomorrowDate={new Date(new Date().setDate(new Date().getDate()+1))} setActiveTab={setActiveTab} />}
                         {activeTab === 'attendance' && <AttendanceTab subcontractors={subcontractors} savedSubs={savedSubs} riskMapping={riskMapping} stats={stats} loginRole={loginRole} isMaster={isMaster} myCompany={myCompany} handleAddSubToDB={handleAddSubToDB} handleUpdateSubToDB={handleUpdateSubToDB} handleApproveSubUpdate={handleApproveSubUpdate} handleRejectSubUpdate={handleRejectSubUpdate} deleteSubcontractor={(id)=> {if(user && confirm('삭제?')) deleteDoc(getDocRef('subcontractors',id))}} handleUpdateRiskMapping={async (k,v)=>{const nm={...riskMapping}; if(v===null) delete nm[k]; else nm[k]=v; await updateDoc(doc(db,'artifacts',appId,'public','data','settings','global'), {riskMapping:nm});}} handleClockOut={handleClockOut} todayStr={todayStr} />}
-                        {activeTab === 'dailyReport' && isMaster && <DailyReportTab subcontractors={subcontractors} tasks={tasks} todayStr={todayStr} />}
+                        {activeTab === 'dailyReport' && isMaster && <DailyReportTab subcontractors={subcontractors} tasks={tasks} dailyReports={dailyReports} todayStr={todayStr} handleSaveDailyReport={handleSaveDailyReport} />}
                         {activeTab === 'tasks' && <TasksTab tasks={tasks} riskMapping={riskMapping} isMaster={isMaster} myCompany={myCompany} handleAddTaskToDB={handleAddTaskToDB} handleUpdateTaskToDB={handleUpdateTaskToDB} handleApproveTaskUpdate={handleApproveTaskUpdate} handleRejectTaskUpdate={handleRejectTaskUpdate} deleteTask={(id)=>{if(confirm('삭제?')) deleteDoc(getDocRef('tasks',id))}}/>}
                         {activeTab === 'materials' && <MaterialTab materials={materials} isMaster={isMaster} myCompany={myCompany} handleAddMaterial={handleAddMaterial} handleApproveMaterial={handleApproveMaterial} handleDeleteMaterial={handleDeleteMaterial}/>}
                         {activeTab === 'requests' && <CommunicationTab requests={requests} loginRole={loginRole} canDelete={isMaster} handleAddRequestToDB={handleAddRequestToDB} deleteRequest={deleteRequest} />}
