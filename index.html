@@ -236,15 +236,19 @@
                     // 저장된 일보가 없으면 데이터베이스(subcontractors, tasks)에서 자동 계산 생성
                     const approvedSubs = subcontractors.filter(s => s.status === 'approved');
                     const cumulativeSubs = approvedSubs.filter(s => s.date <= reportDateStr);
-                    const uniqueKeys = [...new Set(cumulativeSubs.map(s => `${s.name}|${s.trade}`))];
+                    const approvedTasks = tasks.filter(t => t.status === 'approved' && (t.date || formatTs(t.createdAt)) <= reportDateStr);
+                    
+                    const subKeys = cumulativeSubs.map(s => `${s.name}|${s.trade}`);
+                    const taskKeys = approvedTasks.map(t => `${t.subName}|${t.trade}`);
+                    const uniqueKeys = [...new Set([...subKeys, ...taskKeys])];
 
                     const generated = uniqueKeys.map((key, kIdx) => {
                         const [name, trade] = key.split('|');
 
-                        // 작업내용 매핑 (공종 일치)
+                        // 작업내용 매핑 (공종 및 업체명 일치)
                         const myTasks = tasks.filter(t => t.subName === name && t.trade === trade && t.status === 'approved');
-                        const todayTaskDoc = myTasks.find(t => formatTs(t.createdAt) === reportDateStr);
-                        const yesterdayTaskDoc = myTasks.find(t => formatTs(t.createdAt) === reportYesterdayStr);
+                        const todayTaskDoc = myTasks.find(t => (t.date || formatTs(t.createdAt)) === reportDateStr);
+                        const yesterdayTaskDoc = myTasks.find(t => (t.date || formatTs(t.createdAt)) === reportYesterdayStr);
 
                         const todayTaskText = todayTaskDoc && todayTaskDoc.details ? todayTaskDoc.details.map(d => `[${d.location}] ${d.task}`).join('\n') : '';
                         const yesterdayTaskText = yesterdayTaskDoc && yesterdayTaskDoc.details ? yesterdayTaskDoc.details.map(d => `[${d.location}] ${d.task}`).join('\n') : '';
@@ -747,10 +751,10 @@
         // ==========================================
         // 컴포넌트: 작업 및 위험관리 (Tasks)
         // ==========================================
-        const TasksTab = ({ tasks, riskMapping, isMaster, myCompany, handleAddTaskToDB, handleUpdateTaskToDB, handleApproveTaskUpdate, handleRejectTaskUpdate, deleteTask }) => {
+        const TasksTab = ({ tasks, riskMapping, savedSubs, isMaster, myCompany, todayStr, handleAddTaskToDB, handleUpdateTaskToDB, handleApproveTaskUpdate, handleRejectTaskUpdate, deleteTask }) => {
             const defaultTrade = Object.keys(riskMapping)[0] || '';
             const defaultDetail = { location: '', task: '', risk: '', safety: '' };
-            const [newTask, setNewTask] = useState({ trade: defaultTrade, equip: '', details: [{ ...defaultDetail }] });
+            const [newTask, setNewTask] = useState({ subName: isMaster ? '' : myCompany, trade: defaultTrade, equip: '', details: [{ ...defaultDetail }] });
             const [editState, setEditState] = useState(null);
 
             const handleDetailChange = (i, f, v, isEdit=false) => { 
@@ -763,17 +767,27 @@
             
             const onSubmit = (e) => {
                 e.preventDefault();
+                if (!newTask.subName) return alert('협력사명을 선택하세요.');
                 for (let d of newTask.details) { if(!d.task.trim() || !d.location.trim()) return alert('작업내용과 위치를 모두 입력하세요.'); }
-                handleAddTaskToDB({...newTask, subName: isMaster ? '원청' : myCompany});
-                setNewTask({ trade: defaultTrade, equip: '', details: [{ ...defaultDetail }] });
+                handleAddTaskToDB({...newTask});
+                setNewTask({ subName: isMaster ? '' : myCompany, trade: defaultTrade, equip: '', details: [{ ...defaultDetail }] });
             };
+
+            const todaysTasks = tasks.filter(t => t.date === todayStr);
 
             return (
                 <div className="space-y-6 animate-fade-in">
                     <div className="bg-white rounded-2xl shadow border border-slate-100 p-6 md:p-8">
                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2"><i className="fa-solid fa-list-check text-blue-600"></i> 작업/장비 및 세부 위험요소 등록</h2>
                         <form onSubmit={onSubmit} className="space-y-4">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div className="space-y-2">
+                                    <label className="text-xs font-bold text-slate-600">협력사명</label>
+                                    <select className="w-full p-3 border rounded-xl text-sm bg-slate-50" value={newTask.subName} onChange={e=>setNewTask({...newTask, subName:e.target.value})} disabled={!isMaster} required>
+                                        <option value="" disabled>협력사 선택</option>
+                                        {savedSubs.map((s, i) => <option key={i} value={s.name}>{s.name}</option>)}
+                                    </select>
+                                </div>
                                 <div className="space-y-2">
                                     <label className="text-xs font-bold text-slate-600">공종</label>
                                     <select className="w-full p-3 border rounded-xl text-sm bg-slate-50" value={newTask.trade} onChange={e=>setNewTask({...newTask, trade:e.target.value})}>
@@ -805,8 +819,8 @@
                     </div>
 
                     <div className="space-y-4">
-                        <h3 className="font-bold text-slate-800 ml-2">등록된 작업 내역 보드</h3>
-                        {tasks.length === 0 ? <div className="bg-white rounded-2xl shadow p-10 text-center text-slate-400">등록된 작업이 없습니다.</div> : tasks.map(t => {
+                        <h3 className="font-bold text-slate-800 ml-2">금일 등록된 작업 내역 보드 <span className="text-xs text-slate-400 ml-2 font-normal">({todayStr})</span></h3>
+                        {todaysTasks.length === 0 ? <div className="bg-white rounded-2xl shadow p-10 text-center text-slate-400">금일 등록된 작업이 없습니다.</div> : todaysTasks.map(t => {
                             const isPending = t.status === 'pending_update';
                             const canEdit = isMaster || t.subName === myCompany;
                             const isEditing = editState?.id === t.id;
@@ -1356,7 +1370,7 @@
             // 작업 API
             const handleAddTaskToDB = async (data) => {
                 if(!user) return;
-                await setDoc(getDocRef('tasks', Date.now().toString()), { ...data, status: isMaster ? 'approved' : 'pending', createdAt: Date.now() });
+                await setDoc(getDocRef('tasks', Date.now().toString()), { ...data, date: todayStr, status: isMaster ? 'approved' : 'pending', createdAt: Date.now() });
                 showToast(isMaster ? '작업이 등록되었습니다.' : '작업 승인 요청이 전송되었습니다.');
             };
             const handleUpdateTaskToDB = async (id, data, masterFlag) => {
@@ -1531,7 +1545,7 @@
                         {activeTab === 'dashboard' && <DashboardTab stats={stats} realWeather={dummyWeather} tasks={tasks} requests={requests} todayDateString={todayDateString} formatMd={(d)=>`${d.getMonth()+1}월 ${d.getDate()}일`} todayDate={new Date()} tomorrowDate={new Date(new Date().setDate(new Date().getDate()+1))} setActiveTab={setActiveTab} />}
                         {activeTab === 'attendance' && <AttendanceTab subcontractors={subcontractors} savedSubs={savedSubs} riskMapping={riskMapping} stats={stats} loginRole={loginRole} isMaster={isMaster} myCompany={myCompany} handleAddSubToDB={handleAddSubToDB} handleUpdateSubToDB={handleUpdateSubToDB} handleApproveSubUpdate={handleApproveSubUpdate} handleRejectSubUpdate={handleRejectSubUpdate} deleteSubcontractor={(id)=> {if(user && confirm('삭제?')) deleteDoc(getDocRef('subcontractors',id))}} handleUpdateRiskMapping={async (k,v)=>{const nm={...riskMapping}; if(v===null) delete nm[k]; else nm[k]=v; await updateDoc(doc(db,'artifacts',appId,'public','data','settings','global'), {riskMapping:nm});}} handleClockOut={handleClockOut} todayStr={todayStr} />}
                         {activeTab === 'dailyReport' && isMaster && <DailyReportTab subcontractors={subcontractors} tasks={tasks} dailyReports={dailyReports} todayStr={todayStr} handleSaveDailyReport={handleSaveDailyReport} />}
-                        {activeTab === 'tasks' && <TasksTab tasks={tasks} riskMapping={riskMapping} isMaster={isMaster} myCompany={myCompany} handleAddTaskToDB={handleAddTaskToDB} handleUpdateTaskToDB={handleUpdateTaskToDB} handleApproveTaskUpdate={handleApproveTaskUpdate} handleRejectTaskUpdate={handleRejectTaskUpdate} deleteTask={(id)=>{if(confirm('삭제?')) deleteDoc(getDocRef('tasks',id))}}/>}
+                        {activeTab === 'tasks' && <TasksTab tasks={tasks} riskMapping={riskMapping} savedSubs={savedSubs} isMaster={isMaster} myCompany={myCompany} todayStr={todayStr} handleAddTaskToDB={handleAddTaskToDB} handleUpdateTaskToDB={handleUpdateTaskToDB} handleApproveTaskUpdate={handleApproveTaskUpdate} handleRejectTaskUpdate={handleRejectTaskUpdate} deleteTask={(id)=>{if(confirm('삭제?')) deleteDoc(getDocRef('tasks',id))}}/>}
                         {activeTab === 'materials' && <MaterialTab materials={materials} isMaster={isMaster} myCompany={myCompany} handleAddMaterial={handleAddMaterial} handleApproveMaterial={handleApproveMaterial} handleDeleteMaterial={handleDeleteMaterial}/>}
                         {activeTab === 'requests' && <CommunicationTab requests={requests} loginRole={loginRole} canDelete={isMaster} handleAddRequestToDB={handleAddRequestToDB} deleteRequest={deleteRequest} />}
                         {activeTab === 'checklists' && isMaster && <ChecklistTab checklists={checklists} riskMapping={riskMapping} handleAddChecklist={handleAddChecklist} handleToggleChecklist={handleToggleChecklist} handleDeleteChecklist={handleDeleteChecklist}/>}
