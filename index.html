@@ -1072,6 +1072,10 @@
                 setNewCheck({ ...newCheck, location: '', content: '' }); setImg(null); if(fileRef.current) fileRef.current.value = '';
             };
 
+            const totalCount = checklists.length;
+            const completedCount = checklists.filter(c => c.isCompleted).length;
+            const pendingCount = totalCount - completedCount;
+
             return (
                 <div className="space-y-6 animate-fade-in">
                     <TabDescription text="[모바일 안전 점검표] 현장 순회 시 안전 및 품질 점검 사진과 지시사항을 기록하고 완료 여부를 실시간으로 추적 관리합니다." />
@@ -1094,13 +1098,31 @@
                         </div>
                     )}
 
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 flex justify-around divide-x divide-slate-100">
+                        <div className="text-center w-full">
+                            <p className="text-xs font-bold text-slate-500 mb-1">총 점검 건수</p>
+                            <p className="text-2xl font-black text-slate-800">{totalCount}</p>
+                        </div>
+                        <div className="text-center w-full">
+                            <p className="text-xs font-bold text-slate-500 mb-1">조치 완료</p>
+                            <p className="text-2xl font-black text-emerald-500">{completedCount}</p>
+                        </div>
+                        <div className="text-center w-full">
+                            <p className="text-xs font-bold text-slate-500 mb-1">미조치</p>
+                            <p className="text-2xl font-black text-rose-500">{pendingCount}</p>
+                        </div>
+                    </div>
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {checklists.map(c => (
+                        {checklists.map((c, idx) => (
                             <div key={c.id} className={`bg-white rounded-xl border p-4 shadow-sm flex gap-4 transition-all ${c.isCompleted ? 'opacity-60 grayscale bg-slate-50' : 'border-slate-200'}`}>
                                 {c.image ? <img src={c.image} onClick={() => setExpandedImage(c.image)} className="w-24 h-24 object-cover rounded-lg border cursor-pointer hover:opacity-80 transition" alt="checklist"/> : <div className="w-24 h-24 bg-slate-100 rounded-lg flex items-center justify-center text-slate-300"><i className="fa-solid fa-image text-2xl"></i></div>}
                                 <div className="flex-1 relative">
                                     <div className="flex justify-between items-start mb-1">
-                                        <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded">{c.trade}</span>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs font-black text-slate-400">#{checklists.length - idx}</span>
+                                            <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded">{c.trade}</span>
+                                        </div>
                                         {!isGuest && (
                                             <div className="flex items-center gap-3">
                                                 <button onClick={()=>handleToggleChecklist(c.id, !c.isCompleted)} className={`px-3 py-1 rounded text-xs font-bold transition border ${c.isCompleted ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-white text-slate-400 border-slate-300 hover:border-emerald-500 hover:text-emerald-500'}`}><i className="fa-solid fa-check"></i> 완료 확인</button>
