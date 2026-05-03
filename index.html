@@ -39,7 +39,6 @@
 
         const { useState, useEffect, useMemo, useRef } = React;
 
-        // 로컬 타임존 기준 YYYY-MM-DD 포맷 반환 함수 (시간 밀림 버그 방지)
         const getLocalYMD = (dateObj = new Date()) => {
             const offset = dateObj.getTimezoneOffset() * 60000;
             const localDate = new Date(dateObj.getTime() - offset);
@@ -53,7 +52,6 @@
             </div>
         );
 
-        // Firebase 초기화
         const firebaseConfig = {
             apiKey: "AIzaSyDw6rUaE7mxMrywGjAMAtv0Z4vGqg8K8m8",
             authDomain: "precentacednc.firebaseapp.com",
@@ -241,6 +239,11 @@
             reportYesterday.setDate(reportYesterday.getDate() - 1);
             const reportYesterdayStr = getLocalYMD(reportYesterday);
 
+            const formatTs = (ts) => {
+                const d = new Date(ts);
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            };
+
             useEffect(() => {
                 if (isEditing) return;
 
@@ -248,9 +251,8 @@
                 if (savedReport) {
                     setLocalData(savedReport.entries);
                 } else {
-                    // 미승인 데이터도 일보 초안에는 반영되도록 수정 (status 검사 해제)
-                    const cumulativeSubs = subcontractors.filter(s => s.date <= reportDateStr);
-                    const cumulativeTasks = tasks.filter(t => t.date <= reportDateStr);
+                    const cumulativeSubs = subcontractors.filter(s => (s.date || formatTs(s.createdAt)) <= reportDateStr);
+                    const cumulativeTasks = tasks.filter(t => (t.date || formatTs(t.createdAt)) <= reportDateStr);
                     
                     const subKeys = cumulativeSubs.map(s => `${s.name}|${s.trade}`);
                     const taskKeys = cumulativeTasks.map(t => `${t.subName}|${t.trade}`);
@@ -259,22 +261,20 @@
                     const generated = uniqueKeys.map((key, kIdx) => {
                         const [name, trade] = key.split('|');
 
-                        // 작업내용 완벽 매핑 처리
                         const myTasks = cumulativeTasks.filter(t => t.subName === name && t.trade === trade);
                         
-                        const todayTaskDocs = myTasks.filter(t => t.date === reportDateStr);
-                        const yesterdayTaskDocs = myTasks.filter(t => t.date === reportYesterdayStr);
+                        const todayTaskDocs = myTasks.filter(t => (t.date || formatTs(t.createdAt)) === reportDateStr);
+                        const yesterdayTaskDocs = myTasks.filter(t => (t.date || formatTs(t.createdAt)) === reportYesterdayStr);
 
                         const todayTaskText = todayTaskDocs.flatMap(doc => doc.details.map(d => `[${d.location}] ${d.task}`)).join('\n');
                         const yesterdayTaskText = yesterdayTaskDocs.flatMap(doc => doc.details.map(d => `[${d.location}] ${d.task}`)).join('\n');
 
-                        // 세부공종 인원 매핑
                         const mySubs = cumulativeSubs.filter(s => s.name === name && s.trade === trade);
                         const tradeMap = {};
 
                         mySubs.forEach(subDoc => {
-                            const isToday = subDoc.date === reportDateStr;
-                            const isYesterday = subDoc.date === reportYesterdayStr;
+                            const isToday = (subDoc.date || formatTs(subDoc.createdAt)) === reportDateStr;
+                            const isYesterday = (subDoc.date || formatTs(subDoc.createdAt)) === reportYesterdayStr;
                             const totalDocWorkers = (subDoc.early||0) + (subDoc.day||0) + (subDoc.night||0);
                             
                             if (subDoc.workers && subDoc.workers.length > 0) {
@@ -331,12 +331,7 @@
             const addEntry = () => { setLocalData([...localData, { id: `entry_new_${Date.now()}`, subName: '', trade: '', yesterdayTask: '', todayTask: '', detailTrades: [{ id: `dt_new_${Date.now()}_1`, name: '', yesterday: 0, today: 0, cumulative: 0 }] }]); };
 
             const onSave = () => { handleSaveDailyReport(reportDateStr, localData); setIsEditing(false); };
-            
-            const syncFromDB = () => {
-                if(confirm('저장된 일보를 지우고 현재 등록된 최신 출역/작업 데이터로 다시 덮어씌울까요?')) {
-                    handleDeleteDailyReport(reportDateStr);
-                }
-            };
+            const syncFromDB = () => { if(confirm('저장된 일보를 지우고 최신 데이터로 다시 덮어씌울까요?')) handleDeleteDailyReport(reportDateStr); };
 
             return (
                 <div className="space-y-6 animate-fade-in">
@@ -527,6 +522,11 @@
                 night: newSub.workers.filter(w => w.shift === '야간').length
             };
 
+            const formatTs = (ts) => {
+                const d = new Date(ts);
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            };
+
             const onSubmit = (e) => {
                 e.preventDefault();
                 if(isGuest) return;
@@ -537,11 +537,11 @@
 
             const isAllClockedOut = (sub) => (sub.early === 0 || sub.clockedOut?.early) && (sub.day === 0 || sub.clockedOut?.day) && (sub.night === 0 || sub.clockedOut?.night) && ((sub.early||0) + (sub.day||0) + (sub.night||0) > 0);
 
-            const todaysSubs = subcontractors.filter(sub => sub.date === selectedBoardDate);
+            const todaysSubs = subcontractors.filter(sub => (sub.date || formatTs(sub.createdAt)) === selectedBoardDate);
 
             const getCumulative = (subName) => {
                 return subcontractors
-                    .filter(s => s.name === subName && s.status === 'approved' && s.date <= selectedBoardDate)
+                    .filter(s => s.name === subName && s.status === 'approved' && (s.date || formatTs(s.createdAt)) <= selectedBoardDate)
                     .reduce((sum, s) => sum + (s.early||0) + (s.day||0) + (s.night||0), 0);
             };
 
@@ -608,13 +608,17 @@
                                     </div>
                                     <div className="space-y-2">
                                         {newSub.workers.map((w, idx) => (
-                                            <div key={idx} className="flex gap-2 text-sm items-center">
-                                                <select className="p-2 border rounded-lg bg-slate-50 outline-none focus:bg-white" value={w.shift} onChange={(e) => handleWorkerChange(idx, 'shift', e.target.value)}>
-                                                    <option>조출</option><option>주간</option><option>야간</option>
-                                                </select>
-                                                <input className="flex-1 p-2 border rounded-lg bg-slate-50 outline-none focus:bg-white" placeholder="이름 (예: 홍길동)" value={w.name} onChange={(e) => handleWorkerChange(idx, 'name', e.target.value)}/>
-                                                <input className="flex-1 p-2 border rounded-lg bg-slate-50 outline-none focus:bg-white" placeholder="세부공종 (예: 형틀목수)" value={w.detailTrade} onChange={(e) => handleWorkerChange(idx, 'detailTrade', e.target.value)}/>
-                                                <button type="button" onClick={() => removeWorker(idx)} className="text-rose-400 hover:text-rose-600 px-2"><i className="fa-solid fa-xmark"></i></button>
+                                            <div key={idx} className="relative flex flex-col md:flex-row gap-2 text-sm p-3 md:p-0 border border-slate-200 md:border-0 rounded-xl md:rounded-none bg-white md:bg-transparent">
+                                                <div className="flex gap-2 pr-8 md:pr-0">
+                                                    <select className="w-20 p-2 border rounded-lg bg-slate-50 outline-none focus:bg-white" value={w.shift} onChange={(e) => handleWorkerChange(idx, 'shift', e.target.value)}>
+                                                        <option>조출</option><option>주간</option><option>야간</option>
+                                                    </select>
+                                                    <input className="flex-1 p-2 border rounded-lg bg-slate-50 outline-none focus:bg-white" placeholder="이름 (예: 홍길동)" value={w.name} onChange={(e) => handleWorkerChange(idx, 'name', e.target.value)}/>
+                                                </div>
+                                                <input className="w-full md:flex-1 p-2 border rounded-lg bg-slate-50 outline-none focus:bg-white" placeholder="세부공종 (예: 형틀목수)" value={w.detailTrade} onChange={(e) => handleWorkerChange(idx, 'detailTrade', e.target.value)}/>
+                                                <button type="button" onClick={() => removeWorker(idx)} className="absolute top-3 right-2 md:static md:top-auto md:right-auto text-rose-400 hover:text-rose-600 px-2 flex items-center justify-center">
+                                                    <i className="fa-solid fa-xmark text-lg md:text-base"></i>
+                                                </button>
                                             </div>
                                         ))}
                                         <button type="button" onClick={addWorker} className="w-full bg-slate-50 border border-dashed border-blue-300 text-blue-600 font-bold py-2.5 rounded-xl text-xs hover:bg-blue-50 transition mt-2"><i className="fa-solid fa-plus mr-1"></i> 인원 명단 추가</button>
@@ -769,6 +773,11 @@
             const [newTask, setNewTask] = useState({ date: todayStr, subName: isMaster ? '' : myCompany, trade: defaultTrade, equip: '', details: [{ ...defaultDetail }] });
             const [editState, setEditState] = useState(null);
 
+            const formatTs = (ts) => {
+                const d = new Date(ts);
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            };
+
             const handleDetailChange = (i, f, v, isEdit=false) => { 
                 if(isEdit) {
                     const nd = [...editState.details]; nd[i][f] = v; setEditState({...editState, details: nd});
@@ -786,7 +795,7 @@
                 setNewTask({ date: selectedBoardDate, subName: isMaster ? '' : myCompany, trade: defaultTrade, equip: '', details: [{ ...defaultDetail }] });
             };
 
-            const todaysTasks = tasks.filter(t => t.date === selectedBoardDate);
+            const todaysTasks = tasks.filter(t => (t.date || formatTs(t.createdAt)) === selectedBoardDate);
 
             return (
                 <div className="space-y-6 animate-fade-in">
@@ -918,7 +927,7 @@
         };
 
         // ==========================================
-        // 컴포넌트: 자재반입 달력 (Materials)
+        // 자재반입, 체크리스트, 설정 등 (이전 탭들과 동일하게 유지)
         // ==========================================
         const MaterialTab = ({ materials, isMaster, isGuest, myCompany, handleAddMaterial, handleApproveMaterial, handleDeleteMaterial }) => {
             const [currentDate, setCurrentDate] = useState(new Date());
@@ -937,7 +946,11 @@
                 
                 for (let d = 1; d <= daysInMonth; d++) {
                     const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-                    const dayMats = materials.filter(m => m.date === dateStr);
+                    const formatTs = (ts) => {
+                        const d2 = new Date(ts);
+                        return `${d2.getFullYear()}-${String(d2.getMonth() + 1).padStart(2, '0')}-${String(d2.getDate()).padStart(2, '0')}`;
+                    };
+                    const dayMats = materials.filter(m => (m.date || formatTs(m.createdAt)) === dateStr);
                     
                     days.push(
                         <div key={d} onClick={()=>{ if(!isGuest){setSelectedDateStr(dateStr); setShowModal(true);} }} className={`p-2 border-r border-b border-slate-100 min-h-[100px] bg-white ${isGuest ? '' : 'hover:bg-blue-50 cursor-pointer'} group transition relative`}>
@@ -1033,9 +1046,6 @@
             );
         };
 
-        // ==========================================
-        // 컴포넌트: 체크리스트 (Master Only)
-        // ==========================================
         const ChecklistTab = ({ checklists, riskMapping, isGuest, handleAddChecklist, handleToggleChecklist, handleDeleteChecklist }) => {
             const [newCheck, setNewCheck] = useState({ date: getLocalYMD(), trade: Object.keys(riskMapping)[0] || '', location: '', content: '', dueDate: getLocalYMD() });
             const [img, setImg] = useState(null);
@@ -1138,6 +1148,7 @@
                                 </div>
                             </div>
                         ))}
+                        {checklists.length === 0 && <div className="col-span-1 md:col-span-2 text-center py-10 text-slate-400">등록된 체크리스트가 없습니다.</div>}
                     </div>
 
                     {expandedImage && (
@@ -1150,9 +1161,6 @@
             );
         };
 
-        // ==========================================
-        // 컴포넌트: 설정 (Master Only)
-        // ==========================================
         const SettingsTab = ({ passwords, handleUpdatePasswords, savedSubs, handleAddSavedSub, handleUpdateSavedSub, handleDeleteSavedSub, showToast, isGuest }) => {
             const [localPasswords, setLocalPasswords] = useState(passwords);
             const [newSubName, setNewSubName] = useState('');
@@ -1292,7 +1300,6 @@
             const isMaster = loginRole === '원청 관리자 (Master)';
             const isGuest = loginRole === '게스트 (조회 전용)';
 
-            // [포트폴리오 용] 게스트 모드일 경우 실제 데이터를 빈 배열로 숨김 처리 (양식만 보이도록 설정)
             const displaySavedSubs = isGuest ? [] : savedSubs;
             const displaySubcontractors = isGuest ? [] : subcontractors;
             const displayTasks = isGuest ? [] : tasks;
@@ -1300,7 +1307,6 @@
             const displayChecklists = isGuest ? [] : checklists;
             const displayRequests = isGuest ? [] : requests;
             const displayDailyReports = isGuest ? [] : dailyReports;
-            // 비밀번호 폼은 빈칸으로 보이도록 처리
             const displayPasswords = isGuest ? Object.keys(passwords).reduce((acc, key) => ({ ...acc, [key]: '' }), {}) : passwords;
 
             const formatTs = (ts) => {
@@ -1311,7 +1317,6 @@
             const stats = useMemo(() => {
                 let totalAssigned=0, currentWorking=0, totalElderly=0, totalNew=0, totalForeigner=0, totalFemale=0;
                 
-                // 게스트 모드에서는 숫자도 모두 0으로 표시
                 if (isGuest) return { totalAssigned, currentWorking, totalElderly, totalNew, totalForeigner, totalFemale };
 
                 const todaysSubs = subcontractors.filter(sub => (sub.date || formatTs(sub.createdAt)) === todayStr);
@@ -1465,7 +1470,7 @@
                 try { await setDoc(getDocRef('checklists', Date.now().toString()), { ...data, isCompleted: false, createdAt: Date.now() }); } catch(e) { alert('사진 용량이 너무 큽니다.'); }
             };
             const handleToggleChecklist = async (id, isCompleted) => { if(!user) return; if(isGuest) return showToast('권한이 없습니다.'); await updateDoc(getDocRef('checklists', id), { isCompleted }); };
-            const handleDeleteChecklist = async (id) => { if(!user || !confirm('체크리스트를 삭제하시겠습니까?')) return; if(isGuest) return showToast('권한이 없습니다.'); await deleteDoc(getDocRef('checklists', id)); };
+            const handleDeleteChecklist = async (id) => { if(!user || !confirm('삭제하시겠습니까?')) return; if(isGuest) return showToast('권한이 없습니다.'); await deleteDoc(getDocRef('checklists', id)); };
 
             const handleUpdatePasswords = async (newPasswords) => { if(!user) return; if(isGuest) return showToast('게스트 권한이 없습니다.'); await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'global'), { passwords: newPasswords }); showToast('비밀번호가 변경되었습니다.'); };
             const handleAddSavedSubToDB = async (data) => { if(!user) return; if(isGuest) return showToast('게스트 권한이 없습니다.'); await setDoc(getDocRef('saved_subs', Date.now().toString()), { ...data, createdAt: Date.now() }); showToast('협력사가 등록되었습니다.'); };
